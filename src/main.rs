@@ -7,11 +7,15 @@ use axum::{
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use futures_util::StreamExt;
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, Row};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use recipe_core::{extract_recipe, Recipe, RecipeError};
 use serde::{Deserialize, Serialize};
+use chrono::Utc;
+use uuid::Uuid;
 use url::Url;
-use std::{time::Duration};
+use std::time::Duration;
+use std::str::FromStr;
 
 mod database;
 
@@ -37,6 +41,19 @@ struct ErrorBody {
     message: String,
 }
 
+#[derive(Deserialize)]
+struct ImportRecipeRequest {
+    url: String,
+}
+
+#[derive(Serialize)]
+struct ImportRecipeResponse {
+    id: String,
+    recipe: Recipe,
+    created_at: String,
+    updated_at: String,
+}
+
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1023; // 2 MiB
 
 
@@ -54,7 +71,13 @@ async fn main() {
         .build()
         .expect("failed to build reqwest client");
 
-    let db = SqlitePool::connect("sqlite://dev.db")
+    let options = SqliteConnectOptions::from_str("sqlite:./dev.db")
+        .expect("bad sqlite options")
+        .create_if_missing(true);
+
+    let db = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(options)
         .await
         .expect("failed to connect to database");
 
@@ -64,6 +87,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/parse", post(parse))
+        .route("/recipes/import", post(import_recipe))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
@@ -105,6 +129,99 @@ async fn parse(
     let recipe = extract_recipe(&html, &base_url).map_err(ApiError::from_core)?;
 
     Ok(Json(recipe))
+}
+
+async fn import_recipe(
+    State(state): State<AppState>,
+    Json(req): Json<ImportRecipeRequest>
+) -> Result<Json<ImportRecipeResponse>, ApiError> {
+    let base_url = Url::parse(&req.url).map_err(ApiError::bad_request)?;
+
+    // Fetch HTML
+    let resp = state
+        .http
+        .get(base_url.clone())
+        .send()
+        .await
+        .map_err(ApiError::upstream)?;
+
+    let html = resp.text().await.map_err(ApiError::upstream)?;
+
+    // Parse recipe bia recipe-core
+    let recipe = extract_recipe(&html, &base_url).map_err(ApiError::from_core)?;
+
+    // Serialize full recipe payload to JSON for storage
+    let recipe_json = serde_json::to_string(&recipe)
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "SERIALIZATION_ERROR",
+            message: e.to_string()
+        })?;
+    
+    let now = Utc::now().to_rfc3339();
+    let id = Uuid::new_v4().to_string();
+
+    // Upsert into DB by source_url
+    sqlx::query(
+        r#"
+        INSERT INTO recipes (id, source_url, title, image_url, recipe_json, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(source_url) DO UPDATE SET
+            title = excluded.title,
+            image_url = excluded.image_url,
+            recipe_json = excluded.recipe_json,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(&id)
+    .bind(base_url.as_str())
+    .bind(&recipe.title)
+    .bind(recipe.image_url.as_ref().map(|u| u.as_str()))
+    .bind(&recipe_json)
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "DB_WRITE_FAILED",
+        message: e.to_string(),
+    })?;
+
+    // Select stored row
+    let row = sqlx::query(
+        r#"
+        SELECT id, recipe_json, created_at, updated_at
+        FROM recipes
+        WHERE source_url = ?1
+        "#,
+    )
+    .bind(base_url.as_str())
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "DB_READ_FAILED",
+        message: e.to_string(),
+    })?;
+
+    let stored_id: String = row.get("id");
+    let stored_recipe_json: String = row.get("recipe_json");
+    let created_at: String = row.get("created_at");
+    let updated_at: String = row.get("updated_at");
+
+    let stored_recipe: Recipe = serde_json::from_str(&stored_recipe_json).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "DB_DESERIALIZATION_ERROR",
+        message: e.to_string(),
+    })?;
+
+    Ok(Json(ImportRecipeResponse {
+        id: stored_id,
+        recipe: stored_recipe,
+        created_at,
+        updated_at,
+    }))
 }
 
 struct ApiError {

@@ -4,7 +4,7 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     // Users
     sqlx::query(
         r#"
-        CREATE TABLE IF NOT EXISTS recipes (
+        CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL
