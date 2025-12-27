@@ -54,6 +54,15 @@ struct ImportRecipeResponse {
     updated_at: String,
 }
 
+#[derive(Serialize)]
+struct RecipeListItem {
+    id: String,
+    title: String,
+    source_url: String,
+    image_url: Option<String>,
+    updated_at: String,
+}
+
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1023; // 2 MiB
 
 
@@ -88,6 +97,7 @@ async fn main() {
         .route("/health", get(health))
         .route("/parse", post(parse))
         .route("/recipes/import", post(import_recipe))
+        .route("/recipes", get(list_recipes))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
@@ -129,6 +139,38 @@ async fn parse(
     let recipe = extract_recipe(&html, &base_url).map_err(ApiError::from_core)?;
 
     Ok(Json(recipe))
+}
+
+async fn list_recipes(
+    State(state): State<AppState>
+) -> Result<axum::Json<Vec<RecipeListItem>>, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, title, source_url, image_url, updated_at
+        FROM recipes
+        ORDER BY updated_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "DB_READ_FAILED",
+        message: e.to_string(),
+    })?;
+
+    let items = rows
+        .into_iter()
+        .map(|row| RecipeListItem {
+            id: row.get::<String, _>("id"),
+            title: row.get::<String, _>("title"),
+            source_url: row.get::<String, _>("source_url"),
+            image_url: row.get::<Option<String>, _>("image_url"),
+            updated_at: row.get::<String, _>("updated_at"),
+        })
+        .collect();
+
+    Ok(axum::Json(items))
 }
 
 async fn import_recipe(
