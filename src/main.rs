@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    extract::{Json, State},
+    extract::{Json, Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post}
@@ -63,6 +63,14 @@ struct RecipeListItem {
     updated_at: String,
 }
 
+#[derive(Serialize)]
+struct GetRecipeResponse {
+    id: String,
+    recipe: Recipe,
+    created_at: String,
+    updated_at: String,
+}
+
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1023; // 2 MiB
 
 
@@ -96,8 +104,9 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/parse", post(parse))
-        .route("/recipes/import", post(import_recipe))
         .route("/recipes", get(list_recipes))
+        .route("/recipes/import", post(import_recipe))
+        .route("/recipes/{id}", get(get_recipe))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
@@ -266,6 +275,51 @@ async fn import_recipe(
     }))
 }
 
+async fn get_recipe(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::Json<GetRecipeResponse>, ApiError> {
+    // Fetch row by id
+    let row_opt = sqlx::query(
+        r#"
+        SELECT id, recipe_json, created_at, updated_at
+        FROM recipes
+        WHERE id = ?1
+        "#,
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "DB_READ_FAILED",
+        message: e.to_string(),
+    })?;
+
+    let row = match row_opt {
+        Some(r) => r,
+        None => return Err(ApiError::not_found("Recipe not found")),
+    };
+
+    let stored_id: String = row.get("id");
+    let recipe_json: String = row.get("recipe_json");
+    let created_at: String = row.get("created_at");
+    let updated_at: String = row.get("updated_at");
+
+    let recipe: Recipe = serde_json::from_str(&recipe_json).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "DB_DESERIALIZATION_ERROR",
+        message: e.to_string(),
+    })?;
+
+    Ok(axum::Json(GetRecipeResponse {
+        id: stored_id,
+        recipe,
+        created_at,
+        updated_at,
+    }))
+}
+
 struct ApiError {
     status: StatusCode,
     code: &'static str,
@@ -317,6 +371,14 @@ impl ApiError {
                 code: "RECIPE_PARSE_ERROR",
                 message: other.to_string(),
             },
+        }
+    }
+
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "RECIPE_NOT_FOUND",
+            message: message.into(),
         }
     }
 }
