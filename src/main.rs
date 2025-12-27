@@ -7,14 +7,18 @@ use axum::{
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use futures_util::StreamExt;
+use sqlx::SqlitePool;
 use recipe_core::{extract_recipe, Recipe, RecipeError};
 use serde::{Deserialize, Serialize};
 use url::Url;
 use std::{time::Duration};
 
+mod database;
+
 #[derive(Clone)]
 struct AppState {
-    http: reqwest::Client
+    http: reqwest::Client,
+    db: SqlitePool,
 }
 
 #[derive(Deserialize)]
@@ -50,7 +54,12 @@ async fn main() {
         .build()
         .expect("failed to build reqwest client");
 
-    let state = AppState { http };
+    let db = SqlitePool::connect("sqlite://dev.db")
+        .await
+        .expect("failed to connect to database");
+
+    database::init_db(&db).await.expect("failed to init db");
+    let state = AppState { http, db };
 
     let app = Router::new()
         .route("/health", get(health))
