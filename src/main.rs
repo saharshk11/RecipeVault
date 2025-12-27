@@ -6,9 +6,11 @@ use axum::{
     routing::{get, post}
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use futures_util::StreamExt;
 use recipe_core::{extract_recipe, Recipe, RecipeError};
 use serde::{Deserialize, Serialize};
 use url::Url;
+use std::{time::Duration};
 
 #[derive(Clone)]
 struct AppState {
@@ -31,6 +33,9 @@ struct ErrorBody {
     message: String,
 }
 
+const MAX_HTML_BYTES: usize = 2 * 1024 * 1023; // 2 MiB
+
+
 #[tokio::main]
 async fn main() {
     let mut headers = HeaderMap::new();
@@ -41,6 +46,7 @@ async fn main() {
 
     let http = reqwest::Client::builder()
         .default_headers(headers)
+        .timeout(Duration::from_secs(15))
         .build()
         .expect("failed to build reqwest client");
 
@@ -67,15 +73,25 @@ async fn parse(
 ) -> Result<Json<Recipe>, ApiError> {
     let base_url = Url::parse(&req.url).map_err(ApiError::bad_request)?;
 
-    let html = state
+    let resp = state
         .http
         .get(base_url.clone())
         .send()
         .await
-        .map_err(ApiError::upstream)?
-        .text()
-        .await
         .map_err(ApiError::upstream)?;
+
+    let mut buf: Vec<u8> = Vec::new();
+    let mut stream = resp.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(ApiError::upstream)?;
+        if buf.len() + chunk.len() > MAX_HTML_BYTES {
+            return Err(ApiError::upstream_too_large(MAX_HTML_BYTES));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+
+    let html = String::from_utf8_lossy(&buf).to_string();
 
     let recipe = extract_recipe(&html, &base_url).map_err(ApiError::from_core)?;
 
@@ -97,11 +113,27 @@ impl ApiError {
         }
     }
 
-    fn upstream<E: std::fmt::Display>(e: E) -> Self {
+    fn upstream(e: reqwest::Error) -> Self {
+        if e.is_timeout() {
+            return Self {
+                status: StatusCode::GATEWAY_TIMEOUT,
+                code: "UPSTREAM_TIMEOUT",
+                message: "Timed out while fetching remote page".to_string(),
+            };
+        }
+
         Self {
             status: StatusCode::BAD_GATEWAY,
             code: "UPSTREAM_FETCH_FAILED",
             message: format!("Failed to fetch remote page: {e}"),
+        }
+    }
+
+    fn upstream_too_large(max_bytes: usize) -> Self {
+        Self {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+            code: "UPSTREAM_BODY_TOO_LARGE",
+            message: format!("Remote page exceeded {max_bytes} bytes"),
         }
     }
 
