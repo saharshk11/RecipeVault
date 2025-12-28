@@ -5,7 +5,7 @@ use axum::{
     Router,
     extract::{Json, Path, State},
     http::StatusCode,
-    routing::{get, post, patch}
+    routing::{get, post, delete, patch}
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use futures_util::StreamExt;
@@ -104,6 +104,7 @@ async fn main() {
         .route("/recipes/import", post(import_recipe))
         .route("/recipes/{id}", get(get_recipe))
         .route("/recipes/{id}", patch(patch_recipe))
+        .route("/recipes/{id}", delete(delete_recipe))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
@@ -409,4 +410,27 @@ async fn patch_recipe(
         created_at,
         updated_at,
     }))
+}
+
+async fn delete_recipe(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let result = sqlx::query(
+        r#"
+        DELETE FROM recipes
+        WHERE id = ?1
+        "#,
+    )
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(ApiError::db_write)?;
+
+    // rows_affected tells us if anything was actually deleted
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Recipe not found"));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
