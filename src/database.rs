@@ -23,6 +23,7 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             title TEXT NOT NULL,
             image_url TEXT,
             recipe_json TEXT NOT NULL,
+            tags TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );

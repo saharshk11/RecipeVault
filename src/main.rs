@@ -3,7 +3,7 @@ use axum::{
     extract::{Json, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post}
+    routing::{get, post, patch}
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use futures_util::StreamExt;
@@ -71,6 +71,12 @@ struct GetRecipeResponse {
     updated_at: String,
 }
 
+#[derive(Deserialize)]
+struct PatchRecipeRequest {
+    title: Option<String>,
+    tags: Option<Vec<String>>
+}
+
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1023; // 2 MiB
 
 
@@ -107,6 +113,7 @@ async fn main() {
         .route("/recipes", get(list_recipes))
         .route("/recipes/import", post(import_recipe))
         .route("/recipes/{id}", get(get_recipe))
+        .route("/recipes/{id}", patch(patch_recipe))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
@@ -320,6 +327,101 @@ async fn get_recipe(
     }))
 }
 
+async fn patch_recipe(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(patch): Json<PatchRecipeRequest>,
+) -> Result<Json<GetRecipeResponse>, ApiError> {
+    // 1) Fetch current row
+    let row_opt = sqlx::query(
+        r#"
+        SELECT id, recipe_json, title, tags, created_at, updated_at
+        FROM recipes
+        WHERE id = ?1
+        "#,
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(ApiError::db_read)?;
+
+    let row = match row_opt {
+        Some(r) => r,
+        None => return Err(ApiError::not_found("Recipe not found")),
+    };
+
+    let stored_id: String = row.get("id");
+    let created_at: String = row.get("created_at");
+
+    // Stored payloads
+    let recipe_json: String = row.get("recipe_json");
+    let mut recipe: Recipe = serde_json::from_str(&recipe_json).map_err(ApiError::serialization)?;
+
+    // Some DBs may store tags as NULL if older schema existed; be defensive
+    let tags_json: Option<String> = row.get("tags");
+    let mut tags: Vec<String> = match tags_json {
+        Some(s) => serde_json::from_str(&s).unwrap_or_default(),
+        None => Vec::new(),
+    };
+
+    let mut title: String = row.get("title");
+
+    // 2) Apply patch fields
+    if let Some(new_title) = &patch.title {
+        title = new_title.clone();
+        recipe.title = title.clone();
+    }
+
+    if let Some(new_tags) = &patch.tags {
+        tags = new_tags.clone();
+        recipe.tags = tags.clone();
+    }
+
+    // If nothing to update, just return current state (optional behavior)
+    // (You can remove this if you prefer always writing updated_at.)
+    if patch.title.is_none() && patch.tags.is_none() {
+        return Ok(Json(GetRecipeResponse {
+            id: stored_id,
+            recipe,
+            created_at,
+            updated_at: row.get("updated_at"),
+        }));
+    }
+
+    // 3) Write updated row
+    let updated_at = Utc::now().to_rfc3339();
+    let new_recipe_json = serde_json::to_string(&recipe).map_err(ApiError::serialization)?;
+    let new_tags_json = serde_json::to_string(&tags).map_err(ApiError::serialization)?;
+
+    sqlx::query(
+        r#"
+        UPDATE recipes
+        SET title = ?1,
+            tags = ?2,
+            recipe_json = ?3,
+            updated_at = ?4
+        WHERE id = ?5
+        "#,
+    )
+    .bind(&title)
+    .bind(&new_tags_json)
+    .bind(&new_recipe_json)
+    .bind(&updated_at)
+    .bind(&stored_id)
+    .execute(&state.db)
+    .await
+    .map_err(ApiError::db_write)?;
+
+    // 4) Return updated record
+    Ok(Json(GetRecipeResponse {
+        id: stored_id,
+        recipe,
+        created_at,
+        updated_at,
+    }))
+}
+
+
 struct ApiError {
     status: StatusCode,
     code: &'static str,
@@ -379,6 +481,30 @@ impl ApiError {
             status: StatusCode::NOT_FOUND,
             code: "RECIPE_NOT_FOUND",
             message: message.into(),
+        }
+    }
+
+    pub fn db_read(e: sqlx::Error) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "DB_READ_FAILED",
+            message: e.to_string(),
+        }
+    }
+
+    pub fn db_write(e: sqlx::Error) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "DB_WRITE_FAILED",
+            message: e.to_string(),
+        }
+    }
+
+    pub fn serialization(e: serde_json::Error) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "SERIALIZATION_ERROR",
+            message: e.to_string(),
         }
     }
 }
