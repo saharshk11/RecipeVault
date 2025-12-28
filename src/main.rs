@@ -1,23 +1,24 @@
+mod database;
+mod error;
+
 use axum::{
     Router,
     extract::{Json, Path, State},
     http::StatusCode,
-    response::IntoResponse,
     routing::{get, post, patch}
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use futures_util::StreamExt;
 use sqlx::{SqlitePool, Row};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use recipe_core::{extract_recipe, Recipe, RecipeError};
+use recipe_core::{extract_recipe, Recipe};
+use error::ApiError;
 use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use uuid::Uuid;
 use url::Url;
 use std::time::Duration;
 use std::str::FromStr;
-
-mod database;
 
 #[derive(Clone)]
 struct AppState {
@@ -28,17 +29,6 @@ struct AppState {
 #[derive(Deserialize)]
 struct ParseRequest {
     url: String,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: ErrorBody
-}
-
-#[derive(Serialize)]
-struct ErrorBody {
-    code: &'static str,
-    message: String,
 }
 
 #[derive(Deserialize)]
@@ -419,105 +409,4 @@ async fn patch_recipe(
         created_at,
         updated_at,
     }))
-}
-
-
-struct ApiError {
-    status: StatusCode,
-    code: &'static str,
-    message: String,
-}
-
-impl ApiError {
-    fn bad_request<E: std::fmt::Display>(e: E) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            code: "BAD_REQUEST",
-            message: e.to_string(),
-        }
-    }
-
-    fn upstream(e: reqwest::Error) -> Self {
-        if e.is_timeout() {
-            return Self {
-                status: StatusCode::GATEWAY_TIMEOUT,
-                code: "UPSTREAM_TIMEOUT",
-                message: "Timed out while fetching remote page".to_string(),
-            };
-        }
-
-        Self {
-            status: StatusCode::BAD_GATEWAY,
-            code: "UPSTREAM_FETCH_FAILED",
-            message: format!("Failed to fetch remote page: {e}"),
-        }
-    }
-
-    fn upstream_too_large(max_bytes: usize) -> Self {
-        Self {
-            status: StatusCode::PAYLOAD_TOO_LARGE,
-            code: "UPSTREAM_BODY_TOO_LARGE",
-            message: format!("Remote page exceeded {max_bytes} bytes"),
-        }
-    }
-
-    fn from_core(e: RecipeError) -> Self {
-        match e {
-            RecipeError::NotFound => Self {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                code: "NO_RECIPE_FOUND",
-                message: "No recipe found at the provided URL".to_string(),
-            },
-            other => Self {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                code: "RECIPE_PARSE_ERROR",
-                message: other.to_string(),
-            },
-        }
-    }
-
-    fn not_found(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            code: "RECIPE_NOT_FOUND",
-            message: message.into(),
-        }
-    }
-
-    pub fn db_read(e: sqlx::Error) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "DB_READ_FAILED",
-            message: e.to_string(),
-        }
-    }
-
-    pub fn db_write(e: sqlx::Error) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "DB_WRITE_FAILED",
-            message: e.to_string(),
-        }
-    }
-
-    pub fn serialization(e: serde_json::Error) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "SERIALIZATION_ERROR",
-            message: e.to_string(),
-        }
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        let body = ErrorResponse {
-            error: ErrorBody {
-                code: self.code,
-                message: self.message,
-            },
-        };
-
-        (self.status, axum::Json(body)).into_response()
-    }
 }
