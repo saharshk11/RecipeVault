@@ -23,8 +23,9 @@ async fn main() {
 
     let app = build_app(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let addr = "127.0.0.1:3000";
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-    println!("listening on http://127.0.0.1:3000");
+    println!("listening on http://{addr}");
     axum::serve(listener, app).await.unwrap();
 }
