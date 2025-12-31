@@ -1,22 +1,7 @@
 use backend::auth;
-use backend::database;
 use secrecy::ExposeSecret;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use std::str::FromStr;
 
-async fn test_pool() -> sqlx::SqlitePool {
-    let options = SqliteConnectOptions::from_str("sqlite::memory:")
-        .expect("bad sqlite options");
-
-    let pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(options)
-        .await
-        .expect("failed to connect to sqlite memory db");
-
-    database::init_db(&pool).await.expect("failed to init db");
-    pool
-}
+mod test_utils;
 
 #[tokio::test]
 async fn hash_and_verify_password() {
@@ -30,7 +15,7 @@ async fn hash_and_verify_password() {
 
 #[tokio::test]
 async fn create_and_verify_user() {
-    let pool = test_pool().await;
+    let pool = test_utils::test_db().await;
     let user = auth::create_user(
         &pool,
         "admin_user",
@@ -58,7 +43,7 @@ async fn create_and_verify_user() {
 
 #[tokio::test]
 async fn update_credentials_clears_reset_flag() {
-    let pool = test_pool().await;
+    let pool = test_utils::test_db().await;
     let user = auth::create_user(
         &pool,
         "admin_user",
@@ -92,7 +77,7 @@ async fn update_credentials_clears_reset_flag() {
 
 #[tokio::test]
 async fn sessions_work_and_expire() {
-    let pool = test_pool().await;
+    let pool = test_utils::test_db().await;
     let user = auth::create_user(
         &pool,
         "admin_user",
@@ -122,7 +107,7 @@ async fn sessions_work_and_expire() {
 
 #[tokio::test]
 async fn admin_bootstrap_generates_credentials_when_missing() {
-    let pool = test_pool().await;
+    let pool = test_utils::test_db().await;
     let bootstrap = auth::ensure_admin_user(&pool, None, None)
         .await
         .expect("bootstrap failed");
@@ -144,7 +129,7 @@ async fn admin_bootstrap_generates_credentials_when_missing() {
 
 #[tokio::test]
 async fn admin_bootstrap_respects_provided_credentials() {
-    let pool = test_pool().await;
+    let pool = test_utils::test_db().await;
     let bootstrap = auth::ensure_admin_user(
         &pool,
         Some("fixed_admin"),
