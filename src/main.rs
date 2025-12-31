@@ -1,18 +1,27 @@
+mod auth;
 mod database;
 mod error;
 
 use axum::{
+    Extension,
     Router,
     extract::{Json, Path, State},
     http::StatusCode,
+    middleware,
+    response::Response,
     routing::{get, post, delete, patch}
 };
+use axum::body::Body;
+use axum::http::Request;
+use axum::middleware::Next;
+use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use futures_util::StreamExt;
 use sqlx::{SqlitePool, Row};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use recipe_core::{extract_recipe, Recipe};
 use error::ApiError;
+use auth::AuthUser;
 use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use uuid::Uuid;
@@ -67,6 +76,32 @@ struct PatchRecipeRequest {
     tags: Option<Vec<String>>
 }
 
+#[derive(Deserialize)]
+struct LoginRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
+struct ChangeCredentialsRequest {
+    current_password: String,
+    new_username: String,
+    new_password: String,
+}
+
+#[derive(Serialize)]
+struct AuthUserResponse {
+    id: String,
+    username: String,
+    role: String,
+    must_change_password: bool,
+}
+
+#[derive(Serialize)]
+struct LoginResponse {
+    user: AuthUserResponse,
+}
+
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1023; // 2 MiB
 
 
@@ -97,14 +132,26 @@ async fn main() {
     database::init_db(&db).await.expect("failed to init db");
     let state = AppState { http, db };
 
-    let app = Router::new()
-        .route("/health", get(health))
+    let protected_auth_routes = Router::new()
+        .route("/auth/logout", post(logout))
+        .route("/auth/change-credentials", post(change_credentials))
+        .route("/auth/me", get(auth_me))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let recipe_routes = Router::new()
         .route("/parse", post(parse))
         .route("/recipes", get(list_recipes))
         .route("/recipes/import", post(import_recipe))
         .route("/recipes/{id}", get(get_recipe))
         .route("/recipes/{id}", patch(patch_recipe))
         .route("/recipes/{id}", delete(delete_recipe))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_fresh_auth));
+
+    let app = Router::new()
+        .route("/health", get(health))
+        .route("/auth/login", post(login))
+        .merge(protected_auth_routes)
+        .merge(recipe_routes)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
@@ -115,6 +162,146 @@ async fn main() {
 
 async fn health() -> &'static str {
     "ok"
+}
+
+fn to_auth_response(user: &AuthUser) -> AuthUserResponse {
+    AuthUserResponse {
+        id: user.id.clone(),
+        username: user.username.clone(),
+        role: user.role.clone(),
+        must_change_password: user.must_change_password,
+    }
+}
+
+fn cookie_secure() -> bool {
+    std::env::var("RECIPE_COOKIE_SECURE")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
+        .unwrap_or(false)
+}
+
+fn build_session_cookie(session_id: &str) -> Cookie<'static> {
+    let mut cookie = Cookie::build((auth::SESSION_COOKIE_NAME, session_id.to_string()))
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .build();
+
+    if cookie_secure() {
+        cookie.set_secure(true);
+    }
+
+    cookie
+}
+
+fn remove_session_cookie(jar: CookieJar) -> CookieJar {
+    let cookie = Cookie::build((auth::SESSION_COOKIE_NAME, ""))
+        .path("/")
+        .build();
+    jar.remove(cookie)
+}
+
+async fn require_auth(
+    State(state): State<AppState>,
+    mut req: Request<Body>,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let jar = CookieJar::from_headers(req.headers());
+    let session_id = jar
+        .get(auth::SESSION_COOKIE_NAME)
+        .map(|cookie| cookie.value().to_string())
+        .ok_or_else(|| ApiError::unauthorized("Authentication required"))?;
+
+    let user = auth::find_user_by_session_id(&state.db, &session_id)
+        .await?
+        .ok_or_else(|| ApiError::unauthorized("Invalid or expired session"))?;
+
+    req.extensions_mut().insert(user);
+    Ok(next.run(req).await)
+}
+
+async fn require_fresh_auth(
+    State(state): State<AppState>,
+    mut req: Request<Body>,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let jar = CookieJar::from_headers(req.headers());
+    let session_id = jar
+        .get(auth::SESSION_COOKIE_NAME)
+        .map(|cookie| cookie.value().to_string())
+        .ok_or_else(|| ApiError::unauthorized("Authentication required"))?;
+
+    let user = auth::find_user_by_session_id(&state.db, &session_id)
+        .await?
+        .ok_or_else(|| ApiError::unauthorized("Invalid or expired session"))?;
+
+    if user.must_change_password {
+        return Err(ApiError::password_reset_required());
+    }
+
+    req.extensions_mut().insert(user);
+    Ok(next.run(req).await)
+}
+
+async fn login(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(req): Json<LoginRequest>,
+) -> Result<(CookieJar, Json<LoginResponse>), ApiError> {
+    let user = auth::verify_credentials(&state.db, &req.username, &req.password)
+        .await?
+        .ok_or_else(|| ApiError::unauthorized("Invalid credentials"))?;
+
+    let session = auth::create_session(&state.db, &user.id, auth::DEFAULT_SESSION_TTL_SECS)
+        .await?;
+
+    let jar = jar.add(build_session_cookie(&session.id));
+
+    Ok((
+        jar,
+        Json(LoginResponse {
+            user: to_auth_response(&user),
+        }),
+    ))
+}
+
+async fn logout(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> Result<(CookieJar, StatusCode), ApiError> {
+    if let Some(cookie) = jar.get(auth::SESSION_COOKIE_NAME) {
+        auth::delete_session(&state.db, cookie.value()).await?;
+    }
+
+    Ok((remove_session_cookie(jar), StatusCode::NO_CONTENT))
+}
+
+async fn change_credentials(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<ChangeCredentialsRequest>,
+) -> Result<Json<AuthUserResponse>, ApiError> {
+    let valid = auth::verify_user_password(&state.db, &user.id, &req.current_password).await?;
+    if !valid {
+        return Err(ApiError::unauthorized("Invalid credentials"));
+    }
+
+    let updated = auth::update_user_credentials(
+        &state.db,
+        &user.id,
+        &req.new_username,
+        &req.new_password,
+        &user.role,
+        false,
+    )
+    .await?;
+
+    Ok(Json(to_auth_response(&updated)))
+}
+
+async fn auth_me(
+    Extension(user): Extension<AuthUser>,
+) -> Result<Json<AuthUserResponse>, ApiError> {
+    Ok(Json(to_auth_response(&user)))
 }
 
 async fn parse(

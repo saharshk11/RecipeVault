@@ -101,6 +101,38 @@ impl ApiError {
             message: e.to_string(),
         }
     }
+
+    pub fn password_hash(e: argon2::password_hash::Error) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "PASSWORD_HASH_FAILED",
+            message: e.to_string(),
+        }
+    }
+
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "UNAUTHORIZED",
+            message: message.into(),
+        }
+    }
+
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "FORBIDDEN",
+            message: message.into(),
+        }
+    }
+
+    pub fn password_reset_required() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "PASSWORD_RESET_REQUIRED",
+            message: "Password reset required before accessing recipes".to_string(),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
