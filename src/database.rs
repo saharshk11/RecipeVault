@@ -6,14 +6,33 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
-            email TEXT NOT NULL UNIQUE,
-            created_at TEXT NOT NULL
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL, -- 'admin' | 'user'
+            must_change_password INTEGER NOT NULL DEFAULT 0, -- 0/1
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
         "#
     )
     .execute(pool)
     .await?;
     
+    // Sessions (DB-backed, cookie points to session id)
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        "#
+    )
+    .execute(pool)
+    .await?;
+
     // Recipes (unique per source URL)
     sqlx::query(
         r#"
@@ -32,24 +51,11 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
-    // User <-> Recipe saves
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS user_recipes (
-            user_id TEXT NOT NULL,
-            recipe_id TEXT NOT NULL,
-            saved_at TEXT NOT NULL,
-            PRIMARY KEY (user_id, recipe_id),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
     // Helpful indexes
     sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);"#)
+        .execute(pool)
+        .await?;
+    sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);"#)
         .execute(pool)
         .await?;
 
