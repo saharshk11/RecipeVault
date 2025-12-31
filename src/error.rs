@@ -5,6 +5,7 @@ use axum::{
 use recipe_core::RecipeError;
 use serde::Serialize;
 
+#[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
