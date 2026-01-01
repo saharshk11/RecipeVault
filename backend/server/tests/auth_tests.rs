@@ -1,4 +1,4 @@
-use backend::auth;
+use server::auth;
 use secrecy::ExposeSecret;
 
 mod test_utils;

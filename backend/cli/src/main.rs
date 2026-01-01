@@ -68,9 +68,9 @@ async fn run_admin_bootstrap(
         .connect_with(options)
         .await?;
 
-    backend::database::init_db(&pool).await?;
+    server::database::init_db(&pool).await?;
 
-    let bootstrap = backend::auth::ensure_admin_user(
+    let bootstrap = server::auth::ensure_admin_user(
         &pool,
         username.as_deref(),
         password.as_deref(),

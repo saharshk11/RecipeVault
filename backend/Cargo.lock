@@ -156,32 +156,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "backend"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "axum",
- "axum-extra",
- "chrono",
- "dotenvy",
- "futures-util",
- "rand 0.9.2",
- "rand_core 0.6.4",
- "recipe-core",
- "reqwest",
- "secrecy",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -279,11 +253,11 @@ name = "cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "backend",
  "recipe-core",
  "reqwest",
  "secrecy",
  "serde_json",
+ "server",
  "sqlx",
  "tokio",
  "url",
@@ -2324,6 +2298,32 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "axum",
+ "axum-extra",
+ "chrono",
+ "dotenvy",
+ "futures-util",
+ "rand 0.9.2",
+ "rand_core 0.6.4",
+ "recipe-core",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]

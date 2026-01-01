@@ -1,5 +1,5 @@
-use backend::app::build_app;
-use backend::auth;
+use server::app::build_app;
+use server::auth;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header::{CONTENT_TYPE, COOKIE, SET_COOKIE}};
 use axum::Router;

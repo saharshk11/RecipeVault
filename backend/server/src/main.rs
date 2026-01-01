@@ -1,5 +1,5 @@
-use backend::app::{AppState, build_app, default_http_client};
-use backend::database;
+use server::app::{AppState, build_app, default_http_client};
+use server::database;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
