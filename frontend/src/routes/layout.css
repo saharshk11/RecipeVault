@@ -6,6 +6,25 @@
 :root {
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-body: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --tone-cream: #f7f0e8;
+  --tone-ink: #1f1b16;
+  --tone-ink-rgb: 31 27 22;
+  --tone-ink-muted: #3f3a33;
+  --tone-ink-soft: #5f564b;
+  --tone-accent: #b3513c;
+  --tone-gold: #8a5b00;
+  --tone-border: #e7c897;
+  --tone-border-soft: #e3d2b9;
+  --tone-warm-100: #fff6e8;
+  --tone-warm-200: #fff7e5;
+  --tone-warm-300: #fef7ec;
+  --tone-warm-400: #fff1da;
+  --tone-ink-hover: #2f2a24;
+  --tone-glow-sun: rgba(255, 206, 117, 0.35);
+  --tone-glow-sky: rgba(92, 129, 255, 0.25);
+  --tone-glow-rose: rgba(255, 108, 129, 0.22);
+  --tone-glow-sun-solid: #f4c163;
+  --tone-glow-rose-solid: #ff8fa4;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.129 0.042 264.695);
