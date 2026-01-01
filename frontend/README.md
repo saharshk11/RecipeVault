@@ -1,38 +1,41 @@
-# sv
+# Recipe Website Frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit frontend for the recipe app.
 
-## Creating a project
+## Setup
 
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Install dependencies:
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+pnpm install
 ```
 
-## Building
+## Environment
 
-To create a production version of your app:
+The frontend talks to the Rust backend via `VITE_BACKEND_URL` in `.env`:
+
+```env
+VITE_BACKEND_URL=http://localhost:3000
+```
+
+Requests include cookies (`credentials: "include"`), so local dev works best
+when the backend runs at the URL above.
+
+## Development
 
 ```sh
-npm run build
+pnpm run dev
 ```
 
-You can preview the production build with `npm run preview`.
+## Build + Preview
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+```sh
+pnpm run build
+pnpm run preview
+```
+
+## Auth Notes
+
+If you bootstrap the backend admin user with generated credentials, the first
+login will require a password change. The landing page in the frontend includes
+that flow.

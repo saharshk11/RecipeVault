@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 const BACKEND = "http://localhost:3000"
 
 export default defineConfig({
-  plugins: [sveltekit()],
+  plugins: [tailwindcss(), sveltekit()],
   server: {
     proxy: {
       "/auth": BACKEND,
