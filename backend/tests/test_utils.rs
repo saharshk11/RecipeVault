@@ -3,6 +3,7 @@ use backend::database;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
+#[allow(unused)]
 pub async fn test_state() -> AppState {
     let http = default_http_client();
     let db = test_db().await;
