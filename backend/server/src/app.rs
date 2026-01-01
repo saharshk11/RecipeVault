@@ -2,7 +2,7 @@ use axum::{
     Extension,
     Router,
     extract::{Json, Path, State},
-    http::StatusCode,
+    http::{StatusCode, Method, HeaderValue, header::CONTENT_TYPE},
     middleware,
     response::Response,
     routing::{get, post, delete, patch},
@@ -12,7 +12,7 @@ use axum::http::Request;
 use axum::middleware::Next;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use futures_util::StreamExt;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::header::{HeaderMap, USER_AGENT};
 use sqlx::{SqlitePool, Row};
 use recipe_core::{extract_recipe, Recipe};
 use crate::error::ApiError;
@@ -22,6 +22,7 @@ use chrono::Utc;
 use uuid::Uuid;
 use url::Url;
 use std::time::Duration;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -120,6 +121,7 @@ pub fn build_app(state: AppState) -> Router {
         .merge(protected_auth_routes)
         .merge(recipe_routes)
         .with_state(state)
+        .layer(cors_layer())
 }
 
 pub fn default_http_client() -> reqwest::Client {
@@ -134,6 +136,44 @@ pub fn default_http_client() -> reqwest::Client {
         .timeout(Duration::from_secs(15))
         .build()
         .expect("failed to build reqwest client")
+}
+
+fn cors_layer() -> CorsLayer {
+    let origins = std::env::var("CORS_ALLOW_ORIGIN")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect::<Vec<_>>()
+        });
+
+    let fallback = vec![
+        "http://localhost:5173".to_string(),
+        "http://127.0.0.1:5173".to_string(),
+    ];
+
+    let origin_values = origins.unwrap_or(fallback);
+    let header_values: Vec<HeaderValue> = origin_values
+        .iter()
+        .filter_map(|origin| HeaderValue::from_str(origin).ok())
+        .collect();
+
+    let allow_origin = if header_values.is_empty() {
+        AllowOrigin::list([
+            HeaderValue::from_static("http://localhost:5173"),
+            HeaderValue::from_static("http://127.0.0.1:5173"),
+        ])
+    } else {
+        AllowOrigin::list(header_values)
+    };
+
+    CorsLayer::new()
+        .allow_origin(allow_origin)
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
+        .allow_headers([CONTENT_TYPE])
+        .allow_credentials(true)
 }
 
 async fn health() -> &'static str {
