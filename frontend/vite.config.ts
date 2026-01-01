@@ -2,4 +2,16 @@ import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
-export default defineConfig({ plugins: [tailwindcss(), sveltekit()] });
+const BACKEND = "http://localhost:3000"
+
+export default defineConfig({
+  plugins: [sveltekit()],
+  server: {
+    proxy: {
+      "/auth": BACKEND,
+      "/recipes": BACKEND,
+      "/parse": BACKEND,
+      "/health": BACKEND
+    }
+  }
+});
