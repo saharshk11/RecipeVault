@@ -38,7 +38,9 @@ export async function apiFetch<T>(
       (payload as any)?.message ??
       (payload as any)?.error ??
       `Request failed (${res.status})`;
-    throw new ApiError(msg, res.status, payload);
+    const safeMsg =
+      typeof msg === "string" ? msg : JSON.stringify(msg ?? payload);
+    throw new ApiError(safeMsg, res.status, payload);
   }
 
   return payload as T;

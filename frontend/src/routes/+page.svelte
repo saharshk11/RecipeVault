@@ -1,300 +1,333 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
+  import { authMe, logout, type AuthUser } from "$lib/api/auth";
   import {
-    authMe,
-    changeCredentials,
-    login,
-    logout,
-    type AuthUser
-  } from "$lib/api/auth";
+    importRecipe,
+    listRecipes,
+    type RecipeListItem,
+    type ImportRecipeResponse
+  } from "$lib/api/recipes";
   import { ApiError } from "$lib/api/http";
+  import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger
+  } from "$lib/components/ui/dialog";
+  import { Input } from "$lib/components/ui/input";
+  import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger
+  } from "$lib/components/ui/select";
 
-  let username = "";
-  let password = "";
-  let currentPassword = "";
-  let newUsername = "";
-  let newPassword = "";
-  let confirmNewPassword = "";
+  type SortKey = "updated_desc" | "title_asc";
 
   let user: AuthUser | null = null;
-  let error = "";
-  let notice = "";
-  let loginBusy = false;
-  let changeBusy = false;
+  let recipes: RecipeListItem[] = [];
+  let loading = true;
+  let loadError = "";
+
+  let sort: SortKey = "updated_desc";
+  let importUrl = "";
+  let importTags = "";
+  let importBusy = false;
+  let importError = "";
+  let importNotice = "";
+  let showImport = false;
+  let searchQuery = "";
+
+  const sortLabels: Record<SortKey, string> = {
+    updated_desc: "Recently added",
+    title_asc: "Alphabetical (A → Z)"
+  };
+
+  $: sortedRecipes = [...recipes].sort((a, b) => {
+    if (sort === "title_asc") {
+      return a.title.localeCompare(b.title);
+    }
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+  $: filteredRecipes = sortedRecipes.filter((recipe) => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return true;
+    const inTitle = recipe.title.toLowerCase().includes(query);
+    const inTags = (recipe.tags ?? []).some((tag) =>
+      tag.toLowerCase().includes(query)
+    );
+    return inTitle || inTags;
+  });
 
   onMount(async () => {
+    loading = true;
+    loadError = "";
     try {
       user = await authMe();
-    } catch {
-      user = null;
+      recipes = await listRecipes();
+    } catch (err) {
+      loadError = err instanceof ApiError ? err.message : "Failed to load recipes.";
+    } finally {
+      loading = false;
     }
   });
 
-  async function handleLogin() {
-    error = "";
-    notice = "";
-    loginBusy = true;
-    try {
-      const result = await login(username, password);
-      user = result.user;
-      notice = `Signed in as ${result.user.username}.`;
-      password = "";
-    } catch (err) {
-      error = err instanceof ApiError ? err.message : "Login failed.";
-    } finally {
-      loginBusy = false;
-    }
-  }
-
-  async function handleChangeCredentials() {
-    error = "";
-    notice = "";
-    changeBusy = true;
-    if (newPassword !== confirmNewPassword) {
-      error = "New passwords do not match.";
-      changeBusy = false;
+  async function handleImport() {
+    importError = "";
+    importNotice = "";
+    if (!importUrl.trim()) {
+      importError = "Paste a recipe URL first.";
       return;
     }
+    importBusy = true;
+    const tags = importTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
     try {
-      const updated = await changeCredentials(
-        currentPassword,
-        newUsername,
-        newPassword
-      );
-      user = updated;
-      notice = "Credentials updated. You're good to go.";
-      currentPassword = "";
-      newUsername = "";
-      newPassword = "";
-      confirmNewPassword = "";
+      const created = await importRecipe(importUrl.trim(), tags);
+      recipes = [toListItem(created, importUrl.trim()), ...recipes];
+      importNotice = `Imported “${created.recipe.title}”.`;
+      importUrl = "";
+      importTags = "";
     } catch (err) {
-      error = err instanceof ApiError ? err.message : "Update failed.";
+      importError = err instanceof ApiError ? err.message : "Import failed.";
     } finally {
-      changeBusy = false;
+      importBusy = false;
     }
   }
 
   async function handleLogout() {
-    error = "";
-    notice = "";
-    try {
-      await logout();
-    } finally {
-      user = null;
-    }
+    await logout();
+    goto("/login");
+  }
+
+  function openRecipe(id: string) {
+    goto(`/recipes/${id}`);
+  }
+
+  function toListItem(
+    created: ImportRecipeResponse,
+    fallbackUrl: string
+  ): RecipeListItem {
+    return {
+      id: created.id,
+      title: created.recipe.title,
+      source_url: created.recipe.source_url ?? fallbackUrl,
+      image_url: created.recipe.image_url ?? null,
+      created_at: created.created_at,
+      updated_at: created.updated_at,
+      tags: created.recipe.tags ?? []
+    };
   }
 </script>
 
-<div class="relative min-h-screen overflow-hidden bg-[color:var(--tone-cream)]">
-  <div
-    class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tone-glow-sun),_transparent_55%),radial-gradient(circle_at_20%_20%,_var(--tone-glow-sky),_transparent_40%),radial-gradient(circle_at_80%_80%,_var(--tone-glow-rose),_transparent_45%)]"
-  ></div>
-  <div
-    class="pointer-events-none absolute -left-20 top-16 h-56 w-56 rounded-full bg-[color:var(--tone-glow-sun-solid)] opacity-40 blur-3xl"
-  ></div>
-  <div
-    class="pointer-events-none absolute -right-28 bottom-12 h-64 w-64 rounded-full bg-[color:var(--tone-glow-rose-solid)] opacity-35 blur-3xl"
-  ></div>
-
-  <div
-    class="relative mx-auto grid max-w-6xl gap-12 px-6 py-16 md:grid-cols-[1.1fr_0.9fr] md:items-center"
-  >
-    <section class="reveal [--delay:60ms]">
-      <div
-        class="inline-flex items-center gap-2 rounded-full border border-[color:var(--tone-border)] bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--tone-gold)] shadow-sm"
+<div class="min-h-screen bg-[color:var(--tone-cream)]">
+  <div class="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-16">
+    <header class="flex flex-wrap items-center justify-between gap-6">
+      <div class="space-y-2">
+        <div
+          class="inline-flex items-center gap-2 rounded-full border border-[color:var(--tone-border)] bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--tone-gold)]"
+        >
+          <span class="h-2 w-2 rounded-full bg-[color:var(--tone-gold)]"></span>
+          Recipe Vault
+        </div>
+        <h1 class="font-display text-3xl text-[color:var(--tone-ink)] md:text-4xl">
+          {user ? `Welcome back, ${user.username}.` : "Welcome back."}
+        </h1>
+        <p class="text-sm text-[color:var(--tone-ink-muted)] md:text-base">
+          Collect, sort, and revisit every recipe in your library.
+        </p>
+      </div>
+      <button
+        class="rounded-full border border-[color:var(--tone-border)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--tone-gold)] hover:bg-[color:var(--tone-warm-100)]"
+        on:click={handleLogout}
+        type="button"
       >
-        <span class="h-2 w-2 rounded-full bg-[color:var(--tone-gold)]"></span>
-        Recipe Vault
-      </div>
-      <h1 class="font-display mt-6 text-4xl leading-tight text-[color:var(--tone-ink)] md:text-5xl">
-        Welcome, new cook.
-        <span class="block text-[color:var(--tone-accent)]">
-          Your pantry starts here.
-        </span>
-      </h1>
-      <p class="mt-4 max-w-xl text-base text-[color:var(--tone-ink-muted)] md:text-lg">
-        Sign in to save recipes, import new favorites, and keep every ingredient
-        within reach. If this is your first visit, use your admin credentials to
-        unlock the vault.
-      </p>
+        Sign out
+      </button>
+    </header>
 
-      <div class="mt-8 grid gap-4 sm:grid-cols-2">
-        <div
-          class="reveal rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-[color:var(--tone-ink-muted)] shadow-sm [--delay:140ms]"
-        >
-          <p class="font-semibold text-[color:var(--tone-ink)]">
-            Import from any site
-          </p>
-          <p class="mt-1">
-            Drop in a URL and let the parser pull ingredients, steps, and
-            images.
-          </p>
-        </div>
-        <div
-          class="reveal rounded-2xl border border-white/60 bg-white/70 p-4 text-sm text-[color:var(--tone-ink-muted)] shadow-sm [--delay:220ms]"
-        >
-          <p class="font-semibold text-[color:var(--tone-ink)]">
-            Stay organized
-          </p>
-          <p class="mt-1">
-            Tag dishes by mood, meal, or season so the right recipe shows up.
-          </p>
-        </div>
-      </div>
-    </section>
+    <section class="grid gap-6">
+      <div class="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-xl">
+        <div class="relative">
+          <div class="space-y-3 pr-12 sm:pr-14">
+            <h2 class="font-display text-2xl text-[color:var(--tone-ink)]">
+              Your recipes
+            </h2>
+            <p class="text-sm text-[color:var(--tone-ink-soft)]">
+              {#if searchQuery.trim()}
+                {filteredRecipes.length} of {recipes.length} recipe{recipes.length === 1 ? "" : "s"}
+              {:else}
+                {recipes.length} recipe{recipes.length === 1 ? "" : "s"} saved.
+              {/if}
+            </p>
+            <Select type="single" bind:value={sort}>
+              <SelectTrigger
+                class="w-full rounded-full border border-[color:var(--tone-border)] bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--tone-ink)] shadow-sm transition hover:bg-white focus-visible:border-[color:var(--tone-gold)] focus-visible:ring-[3px] focus-visible:ring-[color:var(--tone-gold)]/20 sm:w-56"
+                aria-label="Sort recipes"
+              >
+                <span data-slot="select-value">
+                  {sortLabels[sort]}
+                </span>
+              </SelectTrigger>
+              <SelectContent class="sm:w-56">
+                {#each Object.entries(sortLabels) as [value, label]}
+                  <SelectItem value={value} class="text-xs font-semibold uppercase tracking-[0.12em]">
+                    {label}
+                  </SelectItem>
+                {/each}
+              </SelectContent>
+            </Select>
+            <div class="max-w-sm">
+              <Input
+                type="search"
+                placeholder="Search recipes or tags..."
+                bind:value={searchQuery}
+                class="h-10 border-[color:var(--tone-border-soft)] bg-white text-[color:var(--tone-ink)] focus-visible:border-[color:var(--tone-gold)] focus-visible:ring-[color:var(--tone-gold)]/20"
+              />
+            </div>
+          </div>
+          <div class="absolute right-0 top-0">
+            <Dialog bind:open={showImport}>
+              <DialogTrigger
+                class="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--tone-ink)] text-2xl font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[color:var(--tone-ink-hover)]"
+              >
+                +
+              </DialogTrigger>
+              <DialogContent class="border-white/70 bg-white/95 text-[color:var(--tone-ink)] shadow-xl">
+                <DialogHeader>
+                  <DialogTitle class="font-display text-xl text-[color:var(--tone-ink)]">
+                    Add a new recipe
+                  </DialogTitle>
+                  <DialogDescription class="text-[color:var(--tone-ink-soft)]">
+                    Paste a link and tag it for later.
+                  </DialogDescription>
+                </DialogHeader>
+                <form class="grid gap-4" on:submit|preventDefault={handleImport}>
+                  <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
+                    Recipe URL
+                    <Input
+                      type="url"
+                      placeholder="https://..."
+                      bind:value={importUrl}
+                      class="h-11 border-[color:var(--tone-border-soft)] bg-white text-[color:var(--tone-ink)] focus-visible:border-[color:var(--tone-gold)] focus-visible:ring-[color:var(--tone-gold)]/20"
+                      required
+                    />
+                  </label>
+                  <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
+                    Tags
+                    <Input
+                      type="text"
+                      placeholder="weeknight, italian, vegetarian"
+                      bind:value={importTags}
+                      class="h-11 border-[color:var(--tone-border-soft)] bg-white text-[color:var(--tone-ink)] focus-visible:border-[color:var(--tone-gold)] focus-visible:ring-[color:var(--tone-gold)]/20"
+                    />
+                  </label>
+                  <button
+                    class="shadow-ink h-11 rounded-xl bg-[color:var(--tone-ink)] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[color:var(--tone-ink-hover)] disabled:cursor-not-allowed disabled:opacity-70"
+                    type="submit"
+                    disabled={importBusy}
+                  >
+                    {importBusy ? "Importing..." : "Import recipe"}
+                  </button>
+                </form>
 
-    <section
-      class="reveal rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur [--delay:120ms]"
-    >
-      <div class="flex items-start justify-between gap-4">
-        <div>
-          <h2 class="font-display text-2xl text-[color:var(--tone-ink)]">
-            Sign in
-          </h2>
-          <p class="mt-1 text-sm text-[color:var(--tone-ink-soft)]">
-            Use your recipe vault credentials.
-          </p>
+                {#if importError}
+                  <p class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {importError}
+                  </p>
+                {/if}
+                {#if importNotice}
+                  <p class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                    {importNotice}
+                  </p>
+                {/if}
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
-        {#if user}
-          <button
-            class="rounded-full border border-[color:var(--tone-border)] px-3 py-1 text-xs font-semibold text-[color:var(--tone-gold)] hover:bg-[color:var(--tone-warm-100)]"
-            on:click={handleLogout}
-            type="button"
-          >
-            Sign out
-          </button>
+
+        {#if loading}
+          <div class="mt-6 space-y-3 text-sm text-[color:var(--tone-ink-soft)]">
+            <div class="h-16 rounded-2xl bg-white/70"></div>
+            <div class="h-16 rounded-2xl bg-white/70"></div>
+            <div class="h-16 rounded-2xl bg-white/70"></div>
+          </div>
+        {:else if loadError}
+          <p class="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {loadError}
+          </p>
+        {:else if filteredRecipes.length === 0}
+          <p class="mt-6 rounded-2xl border border-[color:var(--tone-border)] bg-[color:var(--tone-warm-200)] px-4 py-3 text-sm text-[color:var(--tone-ink-soft)]">
+            {#if searchQuery.trim()}
+              No recipes match this search.
+            {:else}
+              No recipes yet. Import one to get started.
+            {/if}
+          </p>
+        {:else}
+          <div class="mt-6 grid gap-4">
+            {#each filteredRecipes as recipe}
+              <article class="flex flex-col gap-4 rounded-2xl border border-[color:var(--tone-border)] bg-white p-4 shadow-sm transition hover:shadow-md md:flex-row md:items-center">
+                <a
+                  class="flex flex-1 flex-col gap-4 md:flex-row md:items-center"
+                  href={`/recipes/${recipe.id}`}
+                  aria-label={`Open ${recipe.title}`}
+                >
+                  <div
+                    class="h-20 w-full overflow-hidden rounded-xl bg-[color:var(--tone-warm-300)] md:h-20 md:w-28"
+                  >
+                    {#if recipe.image_url}
+                      <img
+                        src={recipe.image_url}
+                        alt={recipe.title}
+                        class="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    {/if}
+                  </div>
+                  <div class="flex-1">
+                    <h3 class="font-display text-lg text-[color:var(--tone-ink)]">
+                      {recipe.title}
+                    </h3>
+                    <p class="mt-1 text-xs uppercase tracking-[0.2em] text-[color:var(--tone-ink-soft)]">
+                      {new Date(recipe.created_at).toLocaleDateString()}
+                    </p>
+                    {#if recipe.tags?.length}
+                      <div class="mt-2 flex flex-wrap gap-2">
+                        {#each recipe.tags as tag}
+                          <span class="rounded-full border border-[color:var(--tone-border)] bg-[color:var(--tone-warm-200)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--tone-ink)]">
+                            {tag}
+                          </span>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                </a>
+                <div class="flex flex-wrap items-center gap-3">
+                  <a
+                    class="rounded-full border border-[color:var(--tone-border)] px-3 py-1 text-xs font-semibold text-[color:var(--tone-gold)] hover:bg-[color:var(--tone-warm-100)]"
+                    href={recipe.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Source
+                  </a>
+                </div>
+              </article>
+            {/each}
+          </div>
         {/if}
       </div>
-
-      <form class="mt-6 grid gap-4" on:submit|preventDefault={handleLogin}>
-        <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
-          Username
-          <input
-            class="h-11 rounded-xl border border-[color:var(--tone-border-soft)] bg-white px-3 text-base text-[color:var(--tone-ink)] shadow-sm focus:border-[color:var(--tone-gold)] focus:outline-none"
-            autocomplete="username"
-            bind:value={username}
-            placeholder="admin"
-            required
-          />
-        </label>
-        <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
-          Password
-          <input
-            class="h-11 rounded-xl border border-[color:var(--tone-border-soft)] bg-white px-3 text-base text-[color:var(--tone-ink)] shadow-sm focus:border-[color:var(--tone-gold)] focus:outline-none"
-            type="password"
-            autocomplete="current-password"
-            bind:value={password}
-            placeholder="••••••••"
-            required
-          />
-        </label>
-        <button
-          class="shadow-ink mt-2 h-11 rounded-xl bg-[color:var(--tone-ink)] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[color:var(--tone-ink-hover)] disabled:cursor-not-allowed disabled:opacity-70"
-          disabled={loginBusy}
-          type="submit"
-        >
-          {loginBusy ? "Signing in..." : "Enter the kitchen"}
-        </button>
-      </form>
-
-      {#if error}
-        <p class="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </p>
-      {/if}
-      {#if notice}
-        <p class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {notice}
-        </p>
-      {/if}
-
-      {#if user && user.must_change_password}
-        <div class="mt-6 border-t border-dashed border-[color:var(--tone-border-soft)] pt-6">
-          <h3 class="font-display text-lg text-[color:var(--tone-ink)]">
-            Set your new credentials
-          </h3>
-          <p class="mt-1 text-sm text-[color:var(--tone-ink-soft)]">
-            The admin account requires a fresh username and password.
-          </p>
-
-          <form
-            class="mt-4 grid gap-4"
-            on:submit|preventDefault={handleChangeCredentials}
-          >
-            <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
-              Current password
-              <input
-                class="h-11 rounded-xl border border-[color:var(--tone-border-soft)] bg-white px-3 text-base text-[color:var(--tone-ink)] shadow-sm focus:border-[color:var(--tone-gold)] focus:outline-none"
-                type="password"
-                autocomplete="current-password"
-                bind:value={currentPassword}
-                required
-              />
-            </label>
-            <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
-              New username
-              <input
-                class="h-11 rounded-xl border border-[color:var(--tone-border-soft)] bg-white px-3 text-base text-[color:var(--tone-ink)] shadow-sm focus:border-[color:var(--tone-gold)] focus:outline-none"
-                autocomplete="username"
-                bind:value={newUsername}
-                required
-              />
-            </label>
-            <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
-              New password
-              <input
-                class="h-11 rounded-xl border border-[color:var(--tone-border-soft)] bg-white px-3 text-base text-[color:var(--tone-ink)] shadow-sm focus:border-[color:var(--tone-gold)] focus:outline-none"
-                type="password"
-                autocomplete="new-password"
-                bind:value={newPassword}
-                required
-              />
-            </label>
-            <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
-              Confirm New password
-              <input
-                class="h-11 rounded-xl border border-[color:var(--tone-border-soft)] bg-white px-3 text-base text-[color:var(--tone-ink)] shadow-sm focus:border-[color:var(--tone-gold)] focus:outline-none"
-                type="password"
-                autocomplete="new-password"
-                bind:value={confirmNewPassword}
-                required
-              />
-            </label>
-            <button
-              class="h-11 rounded-xl border border-[color:var(--tone-ink)] bg-[color:var(--tone-warm-300)] text-sm font-semibold text-[color:var(--tone-ink)] transition hover:-translate-y-0.5 hover:bg-[color:var(--tone-warm-400)] disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={changeBusy}
-              type="submit"
-            >
-              {changeBusy ? "Updating..." : "Update credentials"}
-            </button>
-          </form>
-        </div>
-      {:else if user}
-        <div class="mt-6 rounded-2xl border border-[color:var(--tone-border)] bg-[color:var(--tone-warm-200)] p-4 text-sm text-[color:var(--tone-ink-soft)]">
-          You're signed in. Next up: browse recipes or import a new one.
-        </div>
-      {/if}
     </section>
   </div>
 </div>
 
 <style>
-  @keyframes reveal {
-    from {
-      opacity: 0;
-      transform: translateY(18px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .reveal {
-    animation: reveal 0.7s ease both;
-    animation-delay: var(--delay, 0ms);
-  }
-
   .shadow-ink {
     box-shadow: 0 18px 35px -24px rgb(var(--tone-ink-rgb) / 0.2);
   }
