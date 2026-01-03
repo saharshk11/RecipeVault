@@ -60,6 +60,14 @@ struct RecipeListItem {
     tags: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct RecipeNote {
+    id: String,
+    body: String,
+    created_at: String,
+    updated_at: String,
+}
+
 #[derive(Serialize)]
 struct GetRecipeResponse {
     id: String,
@@ -72,6 +80,16 @@ struct GetRecipeResponse {
 struct PatchRecipeRequest {
     title: Option<String>,
     tags: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct CreateNoteRequest {
+    body: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateNoteRequest {
+    body: String,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +134,11 @@ pub fn build_app(state: AppState) -> Router {
         .route("/recipes/{id}", get(get_recipe))
         .route("/recipes/{id}", patch(patch_recipe))
         .route("/recipes/{id}", delete(delete_recipe))
+        .route("/recipes/{id}/notes", get(list_notes).post(create_note))
+        .route(
+            "/recipes/{id}/notes/{note_id}",
+            patch(update_note).delete(delete_note),
+        )
         .route_layer(middleware::from_fn_with_state(state.clone(), require_fresh_auth));
 
     Router::new()
@@ -393,6 +416,213 @@ async fn list_recipes(
         .collect();
 
     Ok(axum::Json(items))
+}
+
+async fn list_notes(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<RecipeNote>>, ApiError> {
+    let row_opt = sqlx::query(
+        r#"
+        SELECT notes
+        FROM recipes
+        WHERE id = ?1
+        "#,
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(ApiError::db_read)?;
+
+    let row = match row_opt {
+        Some(r) => r,
+        None => return Err(ApiError::not_found("Recipe not found")),
+    };
+
+    let notes_json: Option<String> = row.get("notes");
+    let notes: Vec<RecipeNote> = match notes_json {
+        Some(value) => serde_json::from_str(&value).unwrap_or_default(),
+        None => Vec::new(),
+    };
+
+    Ok(Json(notes))
+}
+
+async fn create_note(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<CreateNoteRequest>,
+) -> Result<Json<RecipeNote>, ApiError> {
+    let row_opt = sqlx::query(
+        r#"
+        SELECT notes
+        FROM recipes
+        WHERE id = ?1
+        "#,
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(ApiError::db_read)?;
+
+    let row = match row_opt {
+        Some(r) => r,
+        None => return Err(ApiError::not_found("Recipe not found")),
+    };
+
+    let notes_json: Option<String> = row.get("notes");
+    let mut notes: Vec<RecipeNote> = match notes_json {
+        Some(value) => serde_json::from_str(&value).unwrap_or_default(),
+        None => Vec::new(),
+    };
+
+    let now = Utc::now().to_rfc3339();
+    let note = RecipeNote {
+        id: Uuid::new_v4().to_string(),
+        body: req.body.trim().to_string(),
+        created_at: now.clone(),
+        updated_at: now.clone(),
+    };
+    notes.insert(0, note.clone());
+
+    let notes_json = serde_json::to_string(&notes).map_err(ApiError::serialization)?;
+    let updated_at = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        r#"
+        UPDATE recipes
+        SET notes = ?1,
+            updated_at = ?2
+        WHERE id = ?3
+        "#,
+    )
+    .bind(&notes_json)
+    .bind(&updated_at)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(ApiError::db_write)?;
+
+    Ok(Json(note))
+}
+
+async fn update_note(
+    State(state): State<AppState>,
+    Path((id, note_id)): Path<(String, String)>,
+    Json(req): Json<UpdateNoteRequest>,
+) -> Result<Json<RecipeNote>, ApiError> {
+    let row_opt = sqlx::query(
+        r#"
+        SELECT notes
+        FROM recipes
+        WHERE id = ?1
+        "#,
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(ApiError::db_read)?;
+
+    let row = match row_opt {
+        Some(r) => r,
+        None => return Err(ApiError::not_found("Recipe not found")),
+    };
+
+    let notes_json: Option<String> = row.get("notes");
+    let mut notes: Vec<RecipeNote> = match notes_json {
+        Some(value) => serde_json::from_str(&value).unwrap_or_default(),
+        None => Vec::new(),
+    };
+
+    let now = Utc::now().to_rfc3339();
+    let mut updated_note: Option<RecipeNote> = None;
+    for note in &mut notes {
+        if note.id == note_id {
+            note.body = req.body.trim().to_string();
+            note.updated_at = now.clone();
+            updated_note = Some(note.clone());
+            break;
+        }
+    }
+
+    let updated_note = match updated_note {
+        Some(note) => note,
+        None => return Err(ApiError::not_found("Note not found")),
+    };
+
+    let notes_json = serde_json::to_string(&notes).map_err(ApiError::serialization)?;
+    let updated_at = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        r#"
+        UPDATE recipes
+        SET notes = ?1,
+            updated_at = ?2
+        WHERE id = ?3
+        "#,
+    )
+    .bind(&notes_json)
+    .bind(&updated_at)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(ApiError::db_write)?;
+
+    Ok(Json(updated_note))
+}
+
+async fn delete_note(
+    State(state): State<AppState>,
+    Path((id, note_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    let row_opt = sqlx::query(
+        r#"
+        SELECT notes
+        FROM recipes
+        WHERE id = ?1
+        "#,
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(ApiError::db_read)?;
+
+    let row = match row_opt {
+        Some(r) => r,
+        None => return Err(ApiError::not_found("Recipe not found")),
+    };
+
+    let notes_json: Option<String> = row.get("notes");
+    let mut notes: Vec<RecipeNote> = match notes_json {
+        Some(value) => serde_json::from_str(&value).unwrap_or_default(),
+        None => Vec::new(),
+    };
+
+    let before = notes.len();
+    notes.retain(|note| note.id != note_id);
+    if notes.len() == before {
+        return Err(ApiError::not_found("Note not found"));
+    }
+
+    let notes_json = serde_json::to_string(&notes).map_err(ApiError::serialization)?;
+    let updated_at = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        r#"
+        UPDATE recipes
+        SET notes = ?1,
+            updated_at = ?2
+        WHERE id = ?3
+        "#,
+    )
+    .bind(&notes_json)
+    .bind(&updated_at)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(ApiError::db_write)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn import_recipe(
