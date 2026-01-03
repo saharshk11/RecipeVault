@@ -38,6 +38,7 @@ struct ParseRequest {
 #[derive(Deserialize)]
 struct ImportRecipeRequest {
     url: String,
+    tags: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -54,7 +55,9 @@ struct RecipeListItem {
     title: String,
     source_url: String,
     image_url: Option<String>,
+    created_at: String,
     updated_at: String,
+    tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -356,9 +359,9 @@ async fn list_recipes(
 ) -> Result<axum::Json<Vec<RecipeListItem>>, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT id, title, source_url, image_url, updated_at
+        SELECT id, title, source_url, image_url, created_at, updated_at, tags
         FROM recipes
-        ORDER BY updated_at DESC
+        ORDER BY created_at DESC
         "#,
     )
     .fetch_all(&state.db)
@@ -371,12 +374,21 @@ async fn list_recipes(
 
     let items = rows
         .into_iter()
-        .map(|row| RecipeListItem {
-            id: row.get::<String, _>("id"),
-            title: row.get::<String, _>("title"),
-            source_url: row.get::<String, _>("source_url"),
-            image_url: row.get::<Option<String>, _>("image_url"),
-            updated_at: row.get::<String, _>("updated_at"),
+        .map(|row| {
+            let tags_json: Option<String> = row.get("tags");
+            let tags: Vec<String> = match tags_json {
+                Some(value) => serde_json::from_str(&value).unwrap_or_default(),
+                None => Vec::new(),
+            };
+            RecipeListItem {
+                id: row.get::<String, _>("id"),
+                title: row.get::<String, _>("title"),
+                source_url: row.get::<String, _>("source_url"),
+                image_url: row.get::<Option<String>, _>("image_url"),
+                created_at: row.get::<String, _>("created_at"),
+                updated_at: row.get::<String, _>("updated_at"),
+                tags,
+            }
         })
         .collect();
 
@@ -398,7 +410,9 @@ async fn import_recipe(
 
     let html = resp.text().await.map_err(ApiError::upstream)?;
 
-    let recipe = extract_recipe(&html, &base_url).map_err(ApiError::from_core)?;
+    let mut recipe = extract_recipe(&html, &base_url).map_err(ApiError::from_core)?;
+    let tags = req.tags.unwrap_or_default();
+    recipe.tags = tags.clone();
 
     let recipe_json = serde_json::to_string(&recipe)
         .map_err(|e| ApiError {
@@ -406,18 +420,24 @@ async fn import_recipe(
             code: "SERIALIZATION_ERROR",
             message: e.to_string(),
         })?;
+    let tags_json = serde_json::to_string(&tags).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "SERIALIZATION_ERROR",
+        message: e.to_string(),
+    })?;
     
     let now = Utc::now().to_rfc3339();
     let id = Uuid::new_v4().to_string();
 
     sqlx::query(
         r#"
-        INSERT INTO recipes (id, source_url, title, image_url, recipe_json, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        INSERT INTO recipes (id, source_url, title, image_url, recipe_json, tags, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         ON CONFLICT(source_url) DO UPDATE SET
             title = excluded.title,
             image_url = excluded.image_url,
             recipe_json = excluded.recipe_json,
+            tags = excluded.tags,
             updated_at = excluded.updated_at
         "#,
     )
@@ -426,6 +446,7 @@ async fn import_recipe(
     .bind(&recipe.title)
     .bind(recipe.image_url.as_ref().map(|u| u.as_str()))
     .bind(&recipe_json)
+    .bind(&tags_json)
     .bind(&now)
     .bind(&now)
     .execute(&state.db)

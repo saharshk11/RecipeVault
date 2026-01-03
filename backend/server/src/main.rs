@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
     let http = default_http_client();
 
     let options = SqliteConnectOptions::from_str("sqlite:./dev.db")
@@ -23,8 +24,8 @@ async fn main() {
 
     let app = build_app(state);
 
-    let addr = "127.0.0.1:3000";
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let addr = std::env::var("SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
 
     println!("listening on http://{addr}");
     axum::serve(listener, app).await.unwrap();
