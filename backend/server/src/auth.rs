@@ -7,6 +7,7 @@ use rand_core::OsRng;
 use secrecy::{ExposeSecret, SecretString};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
+use std::collections::HashMap;
 
 use crate::error::ApiError;
 
@@ -22,6 +23,7 @@ pub struct AuthUser {
     pub username: String,
     pub role: String,
     pub must_change_password: bool,
+    pub tag_colors: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,13 @@ fn now_rfc3339() -> String {
 
 fn bool_from_sqlite(value: i64) -> bool {
     value != 0
+}
+
+fn parse_tag_colors(value: Option<String>) -> HashMap<String, String> {
+    match value {
+        Some(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        None => HashMap::new(),
+    }
 }
 
 pub fn hash_password(password: &str) -> Result<String, ApiError> {
@@ -98,7 +107,7 @@ pub async fn find_user_by_id(
 ) -> Result<Option<AuthUser>, ApiError> {
     let row_opt = sqlx::query(
         r#"
-        SELECT id, username, role, must_change_password
+        SELECT id, username, role, must_change_password, tag_colors
         FROM users
         WHERE id = ?1
         "#,
@@ -113,6 +122,7 @@ pub async fn find_user_by_id(
         username: row.get("username"),
         role: row.get("role"),
         must_change_password: bool_from_sqlite(row.get::<i64, _>("must_change_password")),
+        tag_colors: parse_tag_colors(row.get("tag_colors")),
     }))
 }
 
@@ -122,7 +132,7 @@ pub async fn find_user_by_username(
 ) -> Result<Option<AuthUser>, ApiError> {
     let row_opt = sqlx::query(
         r#"
-        SELECT id, username, role, must_change_password
+        SELECT id, username, role, must_change_password, tag_colors
         FROM users
         WHERE username = ?1
         "#,
@@ -137,6 +147,7 @@ pub async fn find_user_by_username(
         username: row.get("username"),
         role: row.get("role"),
         must_change_password: bool_from_sqlite(row.get::<i64, _>("must_change_password")),
+        tag_colors: parse_tag_colors(row.get("tag_colors")),
     }))
 }
 
@@ -147,7 +158,7 @@ pub async fn verify_credentials(
 ) -> Result<Option<AuthUser>, ApiError> {
     let row_opt = sqlx::query(
         r#"
-        SELECT id, username, password_hash, role, must_change_password
+        SELECT id, username, password_hash, role, must_change_password, tag_colors
         FROM users
         WHERE username = ?1
         "#,
@@ -172,6 +183,7 @@ pub async fn verify_credentials(
         username: row.get("username"),
         role: row.get("role"),
         must_change_password: bool_from_sqlite(row.get::<i64, _>("must_change_password")),
+        tag_colors: parse_tag_colors(row.get("tag_colors")),
     }))
 }
 
@@ -208,6 +220,7 @@ pub async fn create_user(
         username: username.to_string(),
         role: role.to_string(),
         must_change_password,
+        tag_colors: HashMap::new(),
     })
 }
 
@@ -241,11 +254,24 @@ pub async fn update_user_credentials(
     .await
     .map_err(ApiError::db_write)?;
 
+    let row = sqlx::query(
+        r#"
+        SELECT tag_colors
+        FROM users
+        WHERE id = ?1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::db_read)?;
+
     Ok(AuthUser {
         id: user_id.to_string(),
         username: new_username.to_string(),
         role: role.to_string(),
         must_change_password,
+        tag_colors: parse_tag_colors(row.get("tag_colors")),
     })
 }
 
@@ -329,7 +355,7 @@ pub async fn find_user_by_session_id(
 
     let row_opt = sqlx::query(
         r#"
-        SELECT u.id, u.username, u.role, u.must_change_password
+        SELECT u.id, u.username, u.role, u.must_change_password, u.tag_colors
         FROM sessions s
         JOIN users u ON u.id = s.user_id
         WHERE s.id = ?1 AND s.expires_at > ?2
@@ -346,7 +372,52 @@ pub async fn find_user_by_session_id(
         username: row.get("username"),
         role: row.get("role"),
         must_change_password: bool_from_sqlite(row.get::<i64, _>("must_change_password")),
+        tag_colors: parse_tag_colors(row.get("tag_colors")),
     }))
+}
+
+pub async fn update_user_tag_colors(
+    pool: &SqlitePool,
+    user_id: &str,
+    tag_colors: &HashMap<String, String>,
+) -> Result<AuthUser, ApiError> {
+    let now = now_rfc3339();
+    let json = serde_json::to_string(tag_colors).map_err(ApiError::serialization)?;
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET tag_colors = ?1,
+            updated_at = ?2
+        WHERE id = ?3
+        "#,
+    )
+    .bind(&json)
+    .bind(&now)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(ApiError::db_write)?;
+
+    let row = sqlx::query(
+        r#"
+        SELECT id, username, role, must_change_password, tag_colors
+        FROM users
+        WHERE id = ?1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::db_read)?;
+
+    Ok(AuthUser {
+        id: row.get("id"),
+        username: row.get("username"),
+        role: row.get("role"),
+        must_change_password: bool_from_sqlite(row.get::<i64, _>("must_change_password")),
+        tag_colors: parse_tag_colors(row.get("tag_colors")),
+    })
 }
 
 pub async fn cleanup_expired_sessions(pool: &SqlitePool) -> Result<u64, ApiError> {
@@ -372,7 +443,7 @@ pub async fn ensure_admin_user(
 ) -> Result<AdminBootstrap, ApiError> {
     let existing_admin = sqlx::query(
         r#"
-        SELECT id, username, role, must_change_password
+        SELECT id, username, role, must_change_password, tag_colors
         FROM users
         WHERE role = ?1
         LIMIT 1
@@ -390,6 +461,7 @@ pub async fn ensure_admin_user(
                 username: row.get("username"),
                 role: row.get("role"),
                 must_change_password: bool_from_sqlite(row.get::<i64, _>("must_change_password")),
+                tag_colors: parse_tag_colors(row.get("tag_colors")),
             },
             generated_credentials: None,
         });

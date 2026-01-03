@@ -22,6 +22,7 @@ use chrono::Utc;
 use uuid::Uuid;
 use url::Url;
 use std::time::Duration;
+use std::collections::HashMap;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 #[derive(Clone)]
@@ -58,6 +59,10 @@ struct RecipeListItem {
     created_at: String,
     updated_at: String,
     tags: Vec<String>,
+    description: Option<String>,
+    ingredients: Vec<String>,
+    instructions: Vec<String>,
+    favorite: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -80,6 +85,7 @@ struct GetRecipeResponse {
 struct PatchRecipeRequest {
     title: Option<String>,
     tags: Option<Vec<String>>,
+    favorite: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -105,12 +111,18 @@ struct ChangeCredentialsRequest {
     new_password: String,
 }
 
+#[derive(Deserialize)]
+struct TagColorsRequest {
+    tag_colors: HashMap<String, String>,
+}
+
 #[derive(Serialize)]
 struct AuthUserResponse {
     id: String,
     username: String,
     role: String,
     must_change_password: bool,
+    tag_colors: HashMap<String, String>,
 }
 
 #[derive(Serialize)]
@@ -125,6 +137,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/auth/logout", post(logout))
         .route("/auth/change-credentials", post(change_credentials))
         .route("/auth/me", get(auth_me))
+        .route("/auth/tag-colors", patch(update_tag_colors))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     let recipe_routes = Router::new()
@@ -212,6 +225,7 @@ fn to_auth_response(user: &AuthUser) -> AuthUserResponse {
         username: user.username.clone(),
         role: user.role.clone(),
         must_change_password: user.must_change_password,
+        tag_colors: user.tag_colors.clone(),
     }
 }
 
@@ -346,6 +360,15 @@ async fn auth_me(
     Ok(Json(to_auth_response(&user)))
 }
 
+async fn update_tag_colors(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<TagColorsRequest>,
+) -> Result<Json<AuthUserResponse>, ApiError> {
+    let updated = auth::update_user_tag_colors(&state.db, &user.id, &req.tag_colors).await?;
+    Ok(Json(to_auth_response(&updated)))
+}
+
 async fn parse(
     State(state): State<AppState>,
     Json(req): Json<ParseRequest>,
@@ -382,7 +405,7 @@ async fn list_recipes(
 ) -> Result<axum::Json<Vec<RecipeListItem>>, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT id, title, source_url, image_url, created_at, updated_at, tags
+        SELECT id, title, source_url, image_url, created_at, updated_at, tags, recipe_json, favorite
         FROM recipes
         ORDER BY created_at DESC
         "#,
@@ -395,25 +418,32 @@ async fn list_recipes(
         message: e.to_string(),
     })?;
 
-    let items = rows
-        .into_iter()
-        .map(|row| {
-            let tags_json: Option<String> = row.get("tags");
-            let tags: Vec<String> = match tags_json {
-                Some(value) => serde_json::from_str(&value).unwrap_or_default(),
-                None => Vec::new(),
-            };
-            RecipeListItem {
-                id: row.get::<String, _>("id"),
-                title: row.get::<String, _>("title"),
-                source_url: row.get::<String, _>("source_url"),
-                image_url: row.get::<Option<String>, _>("image_url"),
-                created_at: row.get::<String, _>("created_at"),
-                updated_at: row.get::<String, _>("updated_at"),
-                tags,
-            }
-        })
-        .collect();
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let tags_json: Option<String> = row.get("tags");
+        let tags: Vec<String> = match tags_json {
+            Some(value) => serde_json::from_str(&value).unwrap_or_default(),
+            None => Vec::new(),
+        };
+
+        let recipe_json: String = row.get("recipe_json");
+        let recipe: Recipe =
+            serde_json::from_str(&recipe_json).map_err(ApiError::serialization)?;
+
+        items.push(RecipeListItem {
+            id: row.get::<String, _>("id"),
+            title: row.get::<String, _>("title"),
+            source_url: row.get::<String, _>("source_url"),
+            image_url: row.get::<Option<String>, _>("image_url"),
+            created_at: row.get::<String, _>("created_at"),
+            updated_at: row.get::<String, _>("updated_at"),
+            tags,
+            description: recipe.description,
+            ingredients: recipe.ingredients,
+            instructions: recipe.instructions,
+            favorite: row.get::<i64, _>("favorite") != 0,
+        });
+    }
 
     Ok(axum::Json(items))
 }
@@ -773,7 +803,7 @@ async fn patch_recipe(
 ) -> Result<Json<GetRecipeResponse>, ApiError> {
     let row_opt = sqlx::query(
         r#"
-        SELECT id, recipe_json, title, tags, created_at, updated_at
+        SELECT id, recipe_json, title, tags, favorite, created_at, updated_at
         FROM recipes
         WHERE id = ?1
         "#,
@@ -801,6 +831,7 @@ async fn patch_recipe(
     };
 
     let mut title: String = row.get("title");
+    let mut favorite: bool = row.get::<i64, _>("favorite") != 0;
 
     if let Some(new_title) = &patch.title {
         title = new_title.clone();
@@ -812,7 +843,11 @@ async fn patch_recipe(
         recipe.tags = tags.clone();
     }
 
-    if patch.title.is_none() && patch.tags.is_none() {
+    if let Some(new_favorite) = patch.favorite {
+        favorite = new_favorite;
+    }
+
+    if patch.title.is_none() && patch.tags.is_none() && patch.favorite.is_none() {
         return Ok(Json(GetRecipeResponse {
             id: stored_id,
             recipe,
@@ -831,14 +866,16 @@ async fn patch_recipe(
         SET title = ?1,
             tags = ?2,
             recipe_json = ?3,
-            updated_at = ?4
-        WHERE id = ?5
+            updated_at = ?4,
+            favorite = ?5
+        WHERE id = ?6
         "#,
     )
     .bind(&title)
     .bind(&new_tags_json)
     .bind(&new_recipe_json)
     .bind(&updated_at)
+    .bind(if favorite { 1 } else { 0 })
     .bind(&stored_id)
     .execute(&state.db)
     .await

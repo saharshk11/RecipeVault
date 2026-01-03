@@ -86,9 +86,24 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     ensure_column(
         pool,
+        "users",
+        "tag_colors",
+        "tag_colors TEXT NOT NULL DEFAULT '{}'",
+    )
+    .await?;
+
+    ensure_column(
+        pool,
         "recipes",
         "notes",
         "notes TEXT NOT NULL DEFAULT '[]'",
+    )
+    .await?;
+    ensure_column(
+        pool,
+        "recipes",
+        "favorite",
+        "favorite INTEGER NOT NULL DEFAULT 0",
     )
     .await?;
 
