@@ -22,6 +22,10 @@ export type RecipeListItem = {
   created_at: string;
   updated_at: string;
   tags: string[];
+  description: string | null;
+  ingredients: string[];
+  instructions: string[];
+  favorite: boolean;
 };
 
 export type GetRecipeResponse = {
@@ -38,6 +42,13 @@ export type ImportRecipeResponse = {
   updated_at: string;
 };
 
+export type RecipeNote = {
+  id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export function listRecipes() {
   return apiFetch<RecipeListItem[]>("/recipes");
 }
@@ -50,5 +61,43 @@ export function importRecipe(url: string, tags: string[]) {
   return apiFetch<ImportRecipeResponse>("/recipes/import", {
     method: "POST",
     body: JSON.stringify({ url, tags })
+  });
+}
+
+export function listRecipeNotes(id: string) {
+  return apiFetch<RecipeNote[]>(`/recipes/${id}/notes`);
+}
+
+export function createRecipeNote(id: string, body: string) {
+  return apiFetch<RecipeNote>(`/recipes/${id}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ body })
+  });
+}
+
+export function updateRecipeNote(id: string, noteId: string, body: string) {
+  return apiFetch<RecipeNote>(`/recipes/${id}/notes/${noteId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ body })
+  });
+}
+
+export function deleteRecipeNote(id: string, noteId: string) {
+  return apiFetch<void>(`/recipes/${id}/notes/${noteId}`, {
+    method: "DELETE"
+  });
+}
+
+export function updateRecipeFavorite(id: string, favorite: boolean) {
+  return apiFetch<GetRecipeResponse>(`/recipes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ favorite })
+  });
+}
+
+export function updateRecipeTitle(id: string, title: string) {
+  return apiFetch<GetRecipeResponse>(`/recipes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title })
   });
 }

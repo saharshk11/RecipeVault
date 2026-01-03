@@ -5,6 +5,7 @@ export type AuthUser = {
   username: string;
   role: string;
   must_change_password: boolean;
+  tag_colors: Record<string, string>;
 };
 
 export type LoginResponse = {
@@ -40,5 +41,12 @@ export function changeCredentials(
       new_username: newUsername,
       new_password: newPassword
     })
+  });
+}
+
+export function updateTagColors(tagColors: Record<string, string>) {
+  return apiFetch<AuthUser>("/auth/tag-colors", {
+    method: "PATCH",
+    body: JSON.stringify({ tag_colors: tagColors })
   });
 }

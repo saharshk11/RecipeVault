@@ -9,7 +9,6 @@ export default defineConfig({
   server: {
     proxy: {
       "/auth": BACKEND,
-      "/recipes": BACKEND,
       "/parse": BACKEND,
       "/health": BACKEND
     }
