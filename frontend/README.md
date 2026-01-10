@@ -18,8 +18,8 @@ The frontend talks to the Rust backend via `VITE_BACKEND_URL` in `.env`:
 VITE_BACKEND_URL=http://localhost:3000
 ```
 
-Requests include cookies (`credentials: "include"`), so local dev works best
-when the backend runs at the URL above.
+After login, the frontend stores a token in `localStorage` and sends it on API requests
+as `Authorization: Bearer <token>`.
 
 ## Development
 

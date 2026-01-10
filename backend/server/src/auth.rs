@@ -14,7 +14,6 @@ use crate::error::ApiError;
 pub const ROLE_ADMIN: &str = "admin";
 pub const ROLE_USER: &str = "user";
 
-pub const SESSION_COOKIE_NAME: &str = "recipe_session";
 pub const DEFAULT_SESSION_TTL_SECS: i64 = 60 * 60 * 24 * 30;
 
 #[derive(Debug, Clone)]

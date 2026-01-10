@@ -105,6 +105,10 @@
       tagColors = user.tag_colors ?? {};
       recipes = await listRecipes();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        goto("/login");
+        return;
+      }
       loadError = err instanceof ApiError ? err.message : "Failed to load recipes.";
     } finally {
       loading = false;

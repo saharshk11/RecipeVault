@@ -2,7 +2,7 @@ use axum::{
     Extension,
     Router,
     extract::{Json, Path, State},
-    http::{StatusCode, Method, HeaderValue, header::CONTENT_TYPE},
+    http::{StatusCode, Method, HeaderValue, HeaderMap, header::{CONTENT_TYPE, AUTHORIZATION}},
     middleware,
     response::Response,
     routing::{get, post, delete, patch},
@@ -10,9 +10,8 @@ use axum::{
 use axum::body::Body;
 use axum::http::Request;
 use axum::middleware::Next;
-use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use futures_util::StreamExt;
-use reqwest::header::{HeaderMap, USER_AGENT};
+use reqwest::header::{HeaderMap as ReqwestHeaderMap, USER_AGENT};
 use sqlx::{SqlitePool, Row};
 use recipe_core::{extract_recipe, Recipe};
 use crate::error::ApiError;
@@ -127,6 +126,7 @@ struct AuthUserResponse {
 
 #[derive(Serialize)]
 struct LoginResponse {
+    token: String,
     user: AuthUserResponse,
 }
 
@@ -164,7 +164,7 @@ pub fn build_app(state: AppState) -> Router {
 }
 
 pub fn default_http_client() -> reqwest::Client {
-    let mut headers = HeaderMap::new();
+    let mut headers = ReqwestHeaderMap::new();
     headers.insert(
         USER_AGENT,
         HeaderValue::from_static("Mozilla/5.0 (compatible; RecipeWebsite/0.1)"),
@@ -211,7 +211,7 @@ fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(allow_origin)
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
-        .allow_headers([CONTENT_TYPE])
+        .allow_headers([CONTENT_TYPE, AUTHORIZATION])
         .allow_credentials(true)
 }
 
@@ -229,48 +229,38 @@ fn to_auth_response(user: &AuthUser) -> AuthUserResponse {
     }
 }
 
-fn cookie_secure() -> bool {
-    std::env::var("RECIPE_COOKIE_SECURE")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-        .unwrap_or(false)
-}
 
-fn build_session_cookie(session_id: &str) -> Cookie<'static> {
-    let mut cookie = Cookie::build((auth::SESSION_COOKIE_NAME, session_id.to_string()))
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .build();
+#[derive(Clone)]
+struct AuthToken(String);
 
-    if cookie_secure() {
-        cookie.set_secure(true);
+fn extract_bearer(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(AUTHORIZATION)?.to_str().ok()?;
+    let token = raw
+        .strip_prefix("Bearer ")
+        .or_else(|| raw.strip_prefix("bearer "))?
+        .trim();
+
+    if token.is_empty() {
+        return None;
     }
 
-    cookie
+    Some(token.to_string())
 }
 
-fn remove_session_cookie(jar: CookieJar) -> CookieJar {
-    let cookie = Cookie::build((auth::SESSION_COOKIE_NAME, ""))
-        .path("/")
-        .build();
-    jar.remove(cookie)
-}
 
 async fn require_auth(
     State(state): State<AppState>,
     mut req: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let jar = CookieJar::from_headers(req.headers());
-    let session_id = jar
-        .get(auth::SESSION_COOKIE_NAME)
-        .map(|cookie| cookie.value().to_string())
+    let token = extract_bearer(req.headers())
         .ok_or_else(|| ApiError::unauthorized("Authentication required"))?;
 
-    let user = auth::find_user_by_session_id(&state.db, &session_id)
+    let user = auth::find_user_by_session_id(&state.db, &token)
         .await?
-        .ok_or_else(|| ApiError::unauthorized("Invalid or expired session"))?;
+        .ok_or_else(|| ApiError::unauthorized("Invalid or expired token"))?;
 
+    req.extensions_mut().insert(AuthToken(token));
     req.extensions_mut().insert(user);
     Ok(next.run(req).await)
 }
@@ -280,55 +270,44 @@ async fn require_fresh_auth(
     mut req: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let jar = CookieJar::from_headers(req.headers());
-    let session_id = jar
-        .get(auth::SESSION_COOKIE_NAME)
-        .map(|cookie| cookie.value().to_string())
+    let token = extract_bearer(req.headers())
         .ok_or_else(|| ApiError::unauthorized("Authentication required"))?;
 
-    let user = auth::find_user_by_session_id(&state.db, &session_id)
+    let user = auth::find_user_by_session_id(&state.db, &token)
         .await?
-        .ok_or_else(|| ApiError::unauthorized("Invalid or expired session"))?;
+        .ok_or_else(|| ApiError::unauthorized("Invalid or expired token"))?;
 
     if user.must_change_password {
         return Err(ApiError::password_reset_required());
     }
 
+    req.extensions_mut().insert(AuthToken(token));
     req.extensions_mut().insert(user);
     Ok(next.run(req).await)
 }
 
 async fn login(
     State(state): State<AppState>,
-    jar: CookieJar,
     Json(req): Json<LoginRequest>,
-) -> Result<(CookieJar, Json<LoginResponse>), ApiError> {
+) -> Result<Json<LoginResponse>, ApiError> {
     let user = auth::verify_credentials(&state.db, &req.username, &req.password)
         .await?
         .ok_or_else(|| ApiError::unauthorized("Invalid credentials"))?;
 
-    let session = auth::create_session(&state.db, &user.id, auth::DEFAULT_SESSION_TTL_SECS)
-        .await?;
+    let session = auth::create_session(&state.db, &user.id, auth::DEFAULT_SESSION_TTL_SECS).await?;
 
-    let jar = jar.add(build_session_cookie(&session.id));
-
-    Ok((
-        jar,
-        Json(LoginResponse {
-            user: to_auth_response(&user),
-        }),
-    ))
+    Ok(Json(LoginResponse {
+        token: session.id,
+        user: to_auth_response(&user),
+    }))
 }
 
 async fn logout(
     State(state): State<AppState>,
-    jar: CookieJar,
-) -> Result<(CookieJar, StatusCode), ApiError> {
-    if let Some(cookie) = jar.get(auth::SESSION_COOKIE_NAME) {
-        auth::delete_session(&state.db, cookie.value()).await?;
-    }
-
-    Ok((remove_session_cookie(jar), StatusCode::NO_CONTENT))
+    Extension(token): Extension<AuthToken>,
+) -> Result<StatusCode, ApiError> {
+    auth::delete_session(&state.db, &token.0).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn change_credentials(

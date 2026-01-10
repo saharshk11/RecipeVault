@@ -1,4 +1,5 @@
 import { apiFetch } from "./http";
+import { clearToken, setToken } from "./token";
 
 export type AuthUser = {
   id: string;
@@ -9,20 +10,27 @@ export type AuthUser = {
 };
 
 export type LoginResponse = {
+  token: string;
   user: AuthUser;
 };
 
-export function login(username: string, password: string) {
-  return apiFetch<LoginResponse>("/auth/login", {
+export async function login(username: string, password: string) {
+  const result = await apiFetch<LoginResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ username, password })
   });
+  setToken(result.token);
+  return result;
 }
 
-export function logout() {
-  return apiFetch<void>("/auth/logout", {
-    method: "POST"
-  });
+export async function logout() {
+  try {
+    await apiFetch<void>("/auth/logout", {
+      method: "POST"
+    });
+  } finally {
+    clearToken();
+  }
 }
 
 export function authMe() {

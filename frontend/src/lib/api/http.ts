@@ -1,3 +1,4 @@
+import { clearToken, getToken } from "./token";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -21,11 +22,12 @@ export async function apiFetch<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<T> {
+  const token = getToken();
   const res = await fetch(resolveApiUrl(path), {
     ...init,
-    credentials: "include",
     headers: {
       ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers ?? {})
     }
   });
@@ -34,6 +36,9 @@ export async function apiFetch<T>(
   const payload = text ? safeJsonParse(text) : null;
 
   if (!res.ok) {
+    if (res.status === 401) {
+      clearToken();
+    }
     const msg =
       (payload as any)?.message ??
       (payload as any)?.error ??
