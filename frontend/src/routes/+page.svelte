@@ -8,6 +8,7 @@
     listRecipes,
     type RecipeListItem,
     type ImportRecipeResponse,
+    deleteRecipe,
     updateRecipeFavorite,
     updateRecipeTitle
   } from "$lib/api/recipes";
@@ -22,6 +23,7 @@
   } from "$lib/components/ui/dialog";
   import PencilIcon from "@lucide/svelte/icons/pencil";
   import StarIcon from "@lucide/svelte/icons/star";
+  import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import { Input } from "$lib/components/ui/input";
   import {
     Popover,
@@ -67,6 +69,11 @@
   let createUserError = "";
   let createUserNotice = "";
   let generatedPassword: string | null = null;
+
+  let deleteOpen = false;
+  let deleteTarget: RecipeListItem | null = null;
+  let deleteBusy = false;
+  let deleteError = "";
 
   const sortLabels: Record<SortKey, string> = {
     updated_desc: "Recently added",
@@ -313,10 +320,89 @@
       );
     }
   }
+
+  function openDelete(recipe: RecipeListItem) {
+    deleteTarget = recipe;
+    deleteError = "";
+    deleteOpen = true;
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    deleteBusy = true;
+    deleteError = "";
+
+    const deletingId = deleteTarget.id;
+    const previous = recipes;
+    recipes = recipes.filter((r) => r.id !== deletingId);
+
+    try {
+      await deleteRecipe(deletingId);
+      deleteOpen = false;
+      deleteTarget = null;
+    } catch (err) {
+      recipes = previous;
+      if (err instanceof ApiError && err.status === 401) {
+        goto("/login");
+        return;
+      }
+      deleteError = err instanceof ApiError ? err.message : "Failed to delete recipe.";
+    } finally {
+      deleteBusy = false;
+    }
+  }
 </script>
 
 <div class="min-h-screen bg-[color:var(--tone-cream)]">
   <div class="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-16">
+    <Dialog bind:open={deleteOpen}>
+      <DialogContent class="border-white/70 bg-white/95 text-[color:var(--tone-ink)] shadow-xl">
+        <DialogHeader>
+          <DialogTitle class="font-display">Delete recipe</DialogTitle>
+          <DialogDescription>
+            This removes the recipe from your vault. This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="mt-4 grid gap-3">
+          <p class="text-sm text-[color:var(--tone-ink)]">
+            {#if deleteTarget}
+              Delete <span class="font-semibold">{deleteTarget.title}</span>?
+            {/if}
+          </p>
+
+          {#if deleteError}
+            <p class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {deleteError}
+            </p>
+          {/if}
+
+          <div class="mt-2 flex justify-end gap-2">
+            <button
+              class="rounded-xl border border-[color:var(--tone-border)] px-4 py-2 text-sm font-semibold text-[color:var(--tone-ink)] hover:bg-[color:var(--tone-warm-100)] disabled:opacity-70"
+              type="button"
+              disabled={deleteBusy}
+              on:click={() => {
+                deleteOpen = false;
+                deleteTarget = null;
+                deleteError = "";
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              class="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-70"
+              type="button"
+              disabled={deleteBusy}
+              on:click={confirmDelete}
+            >
+              {deleteBusy ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
     <header class="flex flex-wrap items-center justify-between gap-6">
       <div class="space-y-2">
         <div
@@ -718,6 +804,14 @@
                       class="h-3.5 w-3.5"
                       fill={recipe.favorite ? "currentColor" : "none"}
                     />
+                  </button>
+                  <button
+                    class="flex items-center justify-center rounded-full border border-[color:var(--tone-border)] p-2 text-[color:var(--tone-ink)] hover:bg-[color:var(--tone-warm-100)]"
+                    type="button"
+                    aria-label="Delete recipe"
+                    on:click={() => openDelete(recipe)}
+                  >
+                    <Trash2Icon class="h-3.5 w-3.5" />
                   </button>
                   <a
                     class="rounded-full border border-[color:var(--tone-border)] px-3 py-1 text-xs font-semibold text-[color:var(--tone-gold)] hover:bg-[color:var(--tone-warm-100)] md:mt-auto"

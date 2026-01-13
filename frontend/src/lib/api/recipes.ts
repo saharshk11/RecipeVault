@@ -101,3 +101,9 @@ export function updateRecipeTitle(id: string, title: string) {
     body: JSON.stringify({ title })
   });
 }
+
+export function deleteRecipe(id: string) {
+  return apiFetch<void>(`/api/recipes/${id}`, {
+    method: "DELETE"
+  });
+}
