@@ -21,11 +21,13 @@ function timingSafeEqual(a: Uint8Array, b: Uint8Array) {
 }
 
 const DEFAULT_ITERATIONS = 210_000;
+const MAX_ITERATIONS = 100_000;
 
 export async function hashPassword(password: string, iterations = DEFAULT_ITERATIONS) {
+  const safeIterations = Math.min(iterations, MAX_ITERATIONS);
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2Sha256(password, salt, iterations, 32);
-  return `pbkdf2_sha256$${iterations}$${bytesToBase64(salt)}$${bytesToBase64(hash)}`;
+  const hash = await pbkdf2Sha256(password, salt, safeIterations, 32);
+  return `pbkdf2_sha256$${safeIterations}$${bytesToBase64(salt)}$${bytesToBase64(hash)}`;
 }
 
 export async function verifyPassword(stored: string, password: string) {
@@ -36,6 +38,7 @@ export async function verifyPassword(stored: string, password: string) {
 
   const iterations = Number.parseInt(iterRaw, 10);
   if (!Number.isFinite(iterations) || iterations <= 0) return false;
+  if (iterations > MAX_ITERATIONS) return false;
 
   const salt = base64ToBytes(saltB64);
   const expected = base64ToBytes(hashB64);
