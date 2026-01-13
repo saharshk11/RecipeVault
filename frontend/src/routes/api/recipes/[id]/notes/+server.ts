@@ -25,7 +25,7 @@ async function loadNotes(event: RequestEvent, recipeId: string) {
 
 export async function GET(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const id = event.params.id;
   const notes = await loadNotes(event, id);
@@ -37,7 +37,7 @@ export async function GET(event) {
 
 export async function POST(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const id = event.params.id;
   const body = await event.request.json().catch(() => null);

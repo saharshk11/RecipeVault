@@ -16,7 +16,7 @@ function parseJson<T>(raw: string | null): T | null {
 
 export async function GET(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const id = event.params.id;
   const row = await db(event)
@@ -43,7 +43,7 @@ export async function GET(event) {
 
 export async function PATCH(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const id = event.params.id;
   const row = await db(event)
@@ -123,7 +123,7 @@ export async function PATCH(event) {
 
 export async function DELETE(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const id = event.params.id;
   const result: any = await db(event).prepare(`DELETE FROM recipes WHERE id = ?1`).bind(id).run();

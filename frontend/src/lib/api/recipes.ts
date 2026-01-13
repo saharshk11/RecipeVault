@@ -26,6 +26,7 @@ export type RecipeListItem = {
   ingredients: string[];
   instructions: string[];
   favorite: boolean;
+  added_by: string | null;
 };
 
 export type GetRecipeResponse = {

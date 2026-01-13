@@ -2,16 +2,8 @@ import { json } from "@sveltejs/kit";
 import { apiError } from "$lib/server/api_error";
 import { ROLE_ADMIN, createUser, generateRandomPassword } from "$lib/server/auth";
 import { db } from "$lib/server/db";
-import { env } from "$env/dynamic/private";
 import type { RequestEvent } from "@sveltejs/kit";
-
-function bootstrapEnabled(event: RequestEvent) {
-  const raw =
-    event.platform?.env?.ALLOW_BOOTSTRAP ??
-    env.ALLOW_BOOTSTRAP ??
-    "";
-  return raw === "1" || raw.toLowerCase() === "true";
-}
+import { bootstrapEnabled } from "$lib/server/bootstrap";
 
 function generateAdminUsername() {
   const bytes = crypto.getRandomValues(new Uint8Array(4));

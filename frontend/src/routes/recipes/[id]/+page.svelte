@@ -37,6 +37,28 @@
   let convertFrom = "cups";
   let convertTo = "ml";
 
+  function formatIsoDuration(raw: string | null) {
+    if (!raw) return null;
+    if (!raw.startsWith("P")) return raw;
+
+    const match = raw.match(
+      /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/
+    );
+    if (!match) return raw;
+
+    const days = Number.parseInt(match[1] ?? "0", 10) || 0;
+    const hours = Number.parseInt(match[2] ?? "0", 10) || 0;
+    const minutes = Number.parseInt(match[3] ?? "0", 10) || 0;
+    const seconds = Number.parseInt(match[4] ?? "0", 10) || 0;
+
+    const parts: string[] = [];
+    if (days) parts.push(`${days} day${days === 1 ? "" : "s"}`);
+    if (hours) parts.push(`${hours} hr${hours === 1 ? "" : "s"}`);
+    if (minutes) parts.push(`${minutes} min`);
+    if (!parts.length && seconds) parts.push(`${seconds} sec`);
+    return parts.length ? parts.join(" ") : raw;
+  }
+
   $: recipe = data.recipe;
   $: notes = data.notes;
   $: notesError = data.notesError ?? "";
@@ -45,9 +67,9 @@
     recipe?.recipe
       ? [
           { label: "Servings", value: recipe.recipe.servings },
-          { label: "Prep", value: recipe.recipe.prep_time },
-          { label: "Cook", value: recipe.recipe.cook_time },
-          { label: "Total", value: recipe.recipe.total_time }
+          { label: "Prep", value: formatIsoDuration(recipe.recipe.prep_time) },
+          { label: "Cook", value: formatIsoDuration(recipe.recipe.cook_time) },
+          { label: "Total", value: formatIsoDuration(recipe.recipe.total_time) }
         ].filter((item) => item.value)
       : [];
 

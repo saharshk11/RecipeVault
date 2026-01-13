@@ -227,7 +227,8 @@
       description: created.recipe.description ?? null,
       ingredients: created.recipe.ingredients ?? [],
       instructions: created.recipe.instructions ?? [],
-      favorite: false
+      favorite: false,
+      added_by: user?.username ?? null
     };
   }
 
@@ -511,7 +512,7 @@
         {/if}
 
         <button
-          class="rounded-full border border-[color:var(--tone-border)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--tone-gold)] hover:bg-[color:var(--tone-warm-100)]"
+          class="rounded-full border border-[color:var(--tone-border)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--tone-ink)] hover:bg-white"
           on:click={handleLogout}
           type="button"
         >
@@ -637,7 +638,7 @@
               <DialogTrigger
                 class="group flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[color:var(--tone-ink)] text-white shadow-sm transition-[width,transform,background-color,padding] duration-600 ease-out hover:w-44 hover:-translate-y-0.5 hover:bg-[color:var(--tone-ink-hover)] hover:justify-start hover:pl-4"
               >
-                <span class="text-2xl font-semibold leading-none transition-transform duration-600 ease-out group-hover:-rotate-180">+</span>
+                <span class="-translate-y-[0.5px] text-2xl font-semibold leading-none transition-transform duration-600 ease-out group-hover:translate-y-[0.5px] group-hover:-rotate-180">+</span>
                 <span class="max-w-0 flex-1 overflow-hidden whitespace-nowrap text-xs font-semibold uppercase tracking-[0.12em] opacity-0 transition-[max-width,opacity] duration-600 ease-out group-hover:max-w-[10rem] group-hover:opacity-100">
                   Add to vault
                 </span>
@@ -775,6 +776,11 @@
                     <p class="mt-1 text-xs uppercase tracking-[0.2em] text-[color:var(--tone-ink-soft)]">
                       {new Date(recipe.created_at).toLocaleDateString()}
                     </p>
+                    {#if recipe.added_by}
+                      <p class="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--tone-ink-soft)]">
+                        Added by: {recipe.added_by}
+                      </p>
+                    {/if}
                     {#if recipe.tags?.length}
                       <div class="mt-2 flex flex-wrap gap-2">
                         {#each recipe.tags as tag}

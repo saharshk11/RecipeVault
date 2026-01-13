@@ -16,6 +16,7 @@ type RecipeListItem = {
   ingredients: string[];
   instructions: string[];
   favorite: boolean;
+  added_by: string | null;
 };
 
 function parseJson<T>(raw: string | null, fallback: T): T {
@@ -29,13 +30,24 @@ function parseJson<T>(raw: string | null, fallback: T): T {
 
 export async function GET(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const rows = await db(event)
     .prepare(
-      `SELECT id, title, source_url, image_url, created_at, updated_at, tags, recipe_json, favorite
-       FROM recipes
-       ORDER BY created_at DESC`
+      `SELECT
+         r.id,
+         r.title,
+         r.source_url,
+         r.image_url,
+         r.created_at,
+         r.updated_at,
+         r.tags,
+         r.recipe_json,
+         r.favorite,
+         u.username AS added_by
+       FROM recipes r
+       LEFT JOIN users u ON u.id = r.added_by_user_id
+       ORDER BY r.created_at DESC`
     )
     .all<{
       id: string;
@@ -47,6 +59,7 @@ export async function GET(event) {
       tags: string;
       recipe_json: string;
       favorite: number;
+      added_by: string | null;
     }>();
 
   const items: RecipeListItem[] = [];
@@ -77,7 +90,8 @@ export async function GET(event) {
       description: recipe.description ?? null,
       ingredients: recipe.ingredients ?? [],
       instructions: recipe.instructions ?? [],
-      favorite: row.favorite !== 0
+      favorite: row.favorite !== 0,
+      added_by: row.added_by
     });
   }
 
@@ -87,4 +101,3 @@ export async function GET(event) {
 export async function POST() {
   return apiError(405, "METHOD_NOT_ALLOWED", "Use /api/recipes/import to import recipes.");
 }
-

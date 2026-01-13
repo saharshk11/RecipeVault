@@ -16,7 +16,8 @@ function parseTags(input: unknown) {
 
 export async function POST(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
+  const currentUser = gate.user;
 
   const body = await event.request.json().catch(() => null);
   const url = body?.url?.toString() ?? "";
@@ -50,17 +51,19 @@ export async function POST(event) {
   const tags_json = JSON.stringify(tags);
   const now = nowRfc3339();
   const id = crypto.randomUUID();
+  const addedByUserId = currentUser.id;
 
   try {
     await db(event)
       .prepare(
-        `INSERT INTO recipes (id, source_url, title, image_url, recipe_json, tags, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        `INSERT INTO recipes (id, source_url, title, image_url, recipe_json, tags, added_by_user_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(source_url) DO UPDATE SET
            title = excluded.title,
            image_url = excluded.image_url,
            recipe_json = excluded.recipe_json,
            tags = excluded.tags,
+           added_by_user_id = COALESCE(recipes.added_by_user_id, excluded.added_by_user_id),
            updated_at = excluded.updated_at`
       )
       .bind(
@@ -70,6 +73,7 @@ export async function POST(event) {
         recipe.image_url,
         recipe_json,
         tags_json,
+        addedByUserId,
         now,
         now
       )
@@ -101,4 +105,3 @@ export async function POST(event) {
     updated_at: stored.updated_at
   });
 }
-

@@ -25,7 +25,7 @@ async function loadNotes(event: RequestEvent, recipeId: string) {
 
 export async function PATCH(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const id = event.params.id;
   const note_id = event.params.note_id;
@@ -67,7 +67,7 @@ export async function PATCH(event) {
 
 export async function DELETE(event) {
   const gate = await requireFreshUserOrResponse(event);
-  if (gate.response) return gate.response;
+  if (!gate.ok) return gate.response;
 
   const id = event.params.id;
   const note_id = event.params.note_id;
