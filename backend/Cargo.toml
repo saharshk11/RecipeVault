@@ -3,5 +3,6 @@ resolver = "3"
 members = [
     "server",
     "cli",
-    "recipe-core"
+    "recipe-core",
+    "recipe-core-wasm"
 ]

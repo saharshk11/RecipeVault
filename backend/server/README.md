@@ -1,5 +1,7 @@
 # Backend Usage
 
+This Rust server is now considered **legacy** for the Cloudflare Pages deployment (the Pages app implements the API routes directly in SvelteKit under `frontend/src/routes/api/**` with D1).
+
 ## Run the server
 
 From the repo root:
@@ -17,6 +19,4 @@ The server listens on `http://127.0.0.1:3000`.
 - `GET /auth/me`
 - `POST /auth/change-credentials`
 
-All recipe endpoints require an `Authorization: Bearer <token>` header. If the user has
-`must_change_password = true`, access to recipe routes will be denied until
-`/auth/change-credentials` succeeds.
+Note: this legacy server’s auth model may differ from the Pages deployment.
