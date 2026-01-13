@@ -21,18 +21,18 @@ declare global {
 			};
 		}
 	}
-}
 
-// Minimal D1 types (avoids needing @cloudflare/workers-types for now).
-type D1Result<T> = { results: T[] };
-interface D1PreparedStatement {
-	bind(...values: unknown[]): D1PreparedStatement;
-	first<T = unknown>(): Promise<T | null>;
-	all<T = unknown>(): Promise<D1Result<T>>;
-	run(): Promise<unknown>;
-}
-interface D1Database {
-	prepare(query: string): D1PreparedStatement;
+	// Minimal D1 types (avoids needing @cloudflare/workers-types for now).
+	type D1Result<T> = { results: T[] };
+	interface D1PreparedStatement {
+		bind(...values: unknown[]): D1PreparedStatement;
+		first<T = unknown>(): Promise<T | null>;
+		all<T = unknown>(): Promise<D1Result<T>>;
+		run(): Promise<unknown>;
+	}
+	interface D1Database {
+		prepare(query: string): D1PreparedStatement;
+	}
 }
 
 export {};

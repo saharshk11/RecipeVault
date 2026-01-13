@@ -4,6 +4,7 @@ import { db } from "$lib/server/db";
 import { nowRfc3339 } from "$lib/server/time";
 import { requireFreshUserOrResponse } from "$lib/server/require_fresh_user";
 import type { RecipeNote } from "$lib/server/recipe_types";
+import type { RequestEvent } from "@sveltejs/kit";
 
 function parseJson<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -14,7 +15,7 @@ function parseJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
-async function loadNotes(event, recipeId: string) {
+async function loadNotes(event: RequestEvent, recipeId: string) {
   const row = await db(event)
     .prepare(`SELECT notes FROM recipes WHERE id = ?1`)
     .bind(recipeId)
@@ -90,4 +91,3 @@ export async function DELETE(event) {
 
   return new Response(null, { status: 204 });
 }
-

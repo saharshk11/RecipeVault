@@ -74,7 +74,9 @@ export async function PATCH(event) {
 
   const body = await event.request.json().catch(() => null);
   const patchTitle = body?.title != null ? String(body.title) : null;
-  const patchTags = Array.isArray(body?.tags) ? body.tags.map((t) => String(t)) : null;
+  const patchTags = Array.isArray(body?.tags)
+    ? (body.tags as unknown[]).map((t: unknown) => String(t))
+    : null;
   const patchFavorite = typeof body?.favorite === "boolean" ? body.favorite : null;
 
   let title = row.title;
@@ -142,4 +144,3 @@ export async function DELETE(event) {
 
   return new Response(null, { status: 204 });
 }
-

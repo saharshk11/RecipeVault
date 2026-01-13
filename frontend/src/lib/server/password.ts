@@ -58,12 +58,15 @@ async function pbkdf2Sha256(
     ["deriveBits"]
   );
 
+  const saltCopy = new Uint8Array(salt.byteLength);
+  saltCopy.set(salt);
+  const saltBuf = saltCopy.buffer as ArrayBuffer;
+
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
+    { name: "PBKDF2", hash: "SHA-256", salt: saltBuf, iterations },
     keyMaterial,
     lengthBytes * 8
   );
 
   return new Uint8Array(bits);
 }
-

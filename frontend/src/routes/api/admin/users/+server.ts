@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { apiError } from "$lib/server/api_error";
 import { ROLE_ADMIN, ROLE_USER, createUser, generateRandomPassword, requireUser } from "$lib/server/auth";
 import { db } from "$lib/server/db";
+import type { AuthUser } from "$lib/server/auth";
 
 function requireAdmin(user: { role: string } | null) {
   return user?.role === ROLE_ADMIN;
@@ -39,7 +40,7 @@ export async function GET(event) {
         return {};
       }
     })()
-  }));
+  })) as AuthUser[];
 
   return json({ users });
 }
@@ -83,4 +84,3 @@ export async function POST(event) {
     return apiError(500, "DB_WRITE_FAILED", e instanceof Error ? e.message : "Failed to create user.");
   }
 }
-
