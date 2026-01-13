@@ -64,7 +64,7 @@ After bootstrapping, sign in and (as admin) use the “Users” dialog on the ho
 The server can optionally use the Rust parser compiled to WASM.
 
 - Enable with `USE_WASM_PARSER=1` (otherwise it falls back to a lightweight JSON-LD parser).
-- WASM wrapper crate: `backend/recipe-core-wasm/README.md`.
+- WASM wrapper crate: `backend/recipe-core-wasm/README.md`
 
 ## Tests
 
