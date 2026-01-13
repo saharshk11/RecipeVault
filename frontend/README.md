@@ -1,6 +1,6 @@
 # Recipe Website Frontend
 
-SvelteKit frontend for the recipe app.
+SvelteKit app for the recipe vault, deployed to Cloudflare Pages (Workers runtime).
 
 ## Setup
 
@@ -10,21 +10,23 @@ Install dependencies:
 pnpm install
 ```
 
-## Environment
+## Cloudflare bindings
 
-The frontend talks to the Rust backend via `VITE_BACKEND_URL` in `.env`:
+This app expects a D1 database bound as `DB`. See `frontend/wrangler.toml`.
 
-```env
-VITE_BACKEND_URL=http://localhost:3000
-```
-
-After login, the frontend stores a token in `localStorage` and sends it on API requests
-as `Authorization: Bearer <token>`.
+Migrations live in `frontend/migrations/`.
 
 ## Development
 
 ```sh
 pnpm run dev
+```
+
+Note: the Vite/SvelteKit dev server does not provide Cloudflare `platform.env` bindings by default. For end-to-end testing with D1, use Wrangler Pages dev:
+
+```sh
+pnpm run build
+wrangler pages dev .svelte-kit/cloudflare
 ```
 
 ## Build + Preview
@@ -36,6 +38,4 @@ pnpm run preview
 
 ## Auth Notes
 
-If you bootstrap the backend admin user with generated credentials, the first
-login will require a password change. The landing page in the frontend includes
-that flow.
+To create the first admin user, enable `ALLOW_BOOTSTRAP=1` and use the “Create admin user” button on `/login` (or `POST /api/admin/bootstrap`).

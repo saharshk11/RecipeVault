@@ -1,0 +1,13 @@
+name = "recipe-vault"
+compatibility_date = "2026-01-13"
+
+# Used by `wrangler pages dev` / Pages builds for SvelteKit (adapter-cloudflare).
+pages_build_output_dir = ".svelte-kit/cloudflare"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "recipe-vault"
+# Set this in your Cloudflare dashboard (or via `wrangler d1 create`).
+database_id = "2c32ada7-6548-4220-8e8d-eca93d571fdc"
+migrations_dir = "migrations"
+

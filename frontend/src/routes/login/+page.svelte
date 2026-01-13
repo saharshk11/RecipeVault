@@ -7,6 +7,7 @@
     logout,
     type AuthUser
   } from "$lib/api/auth";
+  import { bootstrapAdmin } from "$lib/api/admin";
   import { ApiError } from "$lib/api/http";
   import { goto } from "$app/navigation";
 
@@ -22,6 +23,9 @@
   let notice = "";
   let loginBusy = false;
   let changeBusy = false;
+  let bootstrapBusy = false;
+  let bootstrapError = "";
+  let bootstrapCreds: { username: string; password: string } | null = null;
 
   onMount(async () => {
     try {
@@ -89,6 +93,24 @@
       await logout();
     } finally {
       user = null;
+    }
+  }
+
+  async function handleBootstrap() {
+    bootstrapError = "";
+    notice = "";
+    bootstrapCreds = null;
+    bootstrapBusy = true;
+    try {
+      const result = await bootstrapAdmin();
+      bootstrapCreds = result.generated_credentials;
+      username = result.generated_credentials.username;
+      password = result.generated_credentials.password;
+      notice = "Admin user bootstrapped. Copy the generated password now (it won't be shown again).";
+    } catch (err) {
+      bootstrapError = err instanceof ApiError ? err.message : "Bootstrap failed.";
+    } finally {
+      bootstrapBusy = false;
     }
   }
 </script>
@@ -204,6 +226,33 @@
           {loginBusy ? "Signing in..." : "Enter the kitchen"}
         </button>
       </form>
+
+      <div class="mt-6 border-t border-dashed border-[color:var(--tone-border-soft)] pt-6">
+        <h3 class="font-display text-lg text-[color:var(--tone-ink)]">Bootstrap (admin)</h3>
+        <p class="mt-1 text-sm text-[color:var(--tone-ink-soft)]">
+          Creates the first admin user (only works when the server sets <code class="font-mono">ALLOW_BOOTSTRAP=1</code>).
+        </p>
+        <button
+          class="shadow-ink mt-4 h-11 w-full rounded-xl bg-[color:var(--tone-ink)] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[color:var(--tone-ink-hover)] disabled:cursor-not-allowed disabled:opacity-70"
+          disabled={bootstrapBusy}
+          type="button"
+          on:click={handleBootstrap}
+        >
+          {bootstrapBusy ? "Bootstrapping..." : "Create admin user"}
+        </button>
+
+        {#if bootstrapError}
+          <p class="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {bootstrapError}
+          </p>
+        {/if}
+
+        {#if bootstrapCreds}
+          <p class="mt-4 rounded-xl border border-[color:var(--tone-border)] bg-[color:var(--tone-warm-100)] px-3 py-2 text-sm">
+            Generated password: <span class="font-mono">{bootstrapCreds.password}</span>
+          </p>
+        {/if}
+      </div>
 
       {#if error}
         <p class="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

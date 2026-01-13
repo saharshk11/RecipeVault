@@ -50,53 +50,53 @@ export type RecipeNote = {
 };
 
 export function listRecipes() {
-  return apiFetch<RecipeListItem[]>("/recipes");
+  return apiFetch<RecipeListItem[]>("/api/recipes");
 }
 
 export function getRecipe(id: string) {
-  return apiFetch<GetRecipeResponse>(`/recipes/${id}`);
+  return apiFetch<GetRecipeResponse>(`/api/recipes/${id}`);
 }
 
 export function importRecipe(url: string, tags: string[]) {
-  return apiFetch<ImportRecipeResponse>("/recipes/import", {
+  return apiFetch<ImportRecipeResponse>("/api/recipes/import", {
     method: "POST",
     body: JSON.stringify({ url, tags })
   });
 }
 
 export function listRecipeNotes(id: string) {
-  return apiFetch<RecipeNote[]>(`/recipes/${id}/notes`);
+  return apiFetch<RecipeNote[]>(`/api/recipes/${id}/notes`);
 }
 
 export function createRecipeNote(id: string, body: string) {
-  return apiFetch<RecipeNote>(`/recipes/${id}/notes`, {
+  return apiFetch<RecipeNote>(`/api/recipes/${id}/notes`, {
     method: "POST",
     body: JSON.stringify({ body })
   });
 }
 
 export function updateRecipeNote(id: string, noteId: string, body: string) {
-  return apiFetch<RecipeNote>(`/recipes/${id}/notes/${noteId}`, {
+  return apiFetch<RecipeNote>(`/api/recipes/${id}/notes/${noteId}`, {
     method: "PATCH",
     body: JSON.stringify({ body })
   });
 }
 
 export function deleteRecipeNote(id: string, noteId: string) {
-  return apiFetch<void>(`/recipes/${id}/notes/${noteId}`, {
+  return apiFetch<void>(`/api/recipes/${id}/notes/${noteId}`, {
     method: "DELETE"
   });
 }
 
 export function updateRecipeFavorite(id: string, favorite: boolean) {
-  return apiFetch<GetRecipeResponse>(`/recipes/${id}`, {
+  return apiFetch<GetRecipeResponse>(`/api/recipes/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ favorite })
   });
 }
 
 export function updateRecipeTitle(id: string, title: string) {
-  return apiFetch<GetRecipeResponse>(`/recipes/${id}`, {
+  return apiFetch<GetRecipeResponse>(`/api/recipes/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ title })
   });

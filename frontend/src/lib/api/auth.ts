@@ -1,5 +1,4 @@
 import { apiFetch } from "./http";
-import { clearToken, setToken } from "./token";
 
 export type AuthUser = {
   id: string;
@@ -10,31 +9,24 @@ export type AuthUser = {
 };
 
 export type LoginResponse = {
-  token: string;
   user: AuthUser;
 };
 
-export async function login(username: string, password: string) {
-  const result = await apiFetch<LoginResponse>("/auth/login", {
+export function login(username: string, password: string) {
+  return apiFetch<LoginResponse>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ username, password })
   });
-  setToken(result.token);
-  return result;
 }
 
-export async function logout() {
-  try {
-    await apiFetch<void>("/auth/logout", {
-      method: "POST"
-    });
-  } finally {
-    clearToken();
-  }
+export function logout() {
+  return apiFetch<void>("/api/auth/logout", {
+    method: "POST"
+  });
 }
 
 export function authMe() {
-  return apiFetch<AuthUser>("/auth/me");
+  return apiFetch<AuthUser>("/api/auth/me");
 }
 
 export function changeCredentials(
@@ -42,7 +34,7 @@ export function changeCredentials(
   newUsername: string,
   newPassword: string
 ) {
-  return apiFetch<AuthUser>("/auth/change-credentials", {
+  return apiFetch<AuthUser>("/api/auth/change-credentials", {
     method: "POST",
     body: JSON.stringify({
       current_password: currentPassword,
@@ -53,7 +45,7 @@ export function changeCredentials(
 }
 
 export function updateTagColors(tagColors: Record<string, string>) {
-  return apiFetch<AuthUser>("/auth/tag-colors", {
+  return apiFetch<AuthUser>("/api/auth/tag-colors", {
     method: "PATCH",
     body: JSON.stringify({ tag_colors: tagColors })
   });

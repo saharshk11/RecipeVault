@@ -1,4 +1,3 @@
-import { clearToken, getToken } from "./token";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -9,25 +8,14 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "");
-
-function resolveApiUrl(path: string) {
-  if (!API_BASE) return path;
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  if (path.startsWith("/")) return `${API_BASE}${path}`;
-  return `${API_BASE}/${path}`;
-}
-
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<T> {
-  const token = getToken();
-  const res = await fetch(resolveApiUrl(path), {
+  const res = await fetch(path, {
     ...init,
     headers: {
       ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers ?? {})
     }
   });
@@ -36,11 +24,9 @@ export async function apiFetch<T>(
   const payload = text ? safeJsonParse(text) : null;
 
   if (!res.ok) {
-    if (res.status === 401) {
-      clearToken();
-    }
     const msg =
       (payload as any)?.message ??
+      (payload as any)?.error?.message ??
       (payload as any)?.error ??
       `Request failed (${res.status})`;
     const safeMsg =

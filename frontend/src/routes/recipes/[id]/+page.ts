@@ -1,17 +1,10 @@
 import { error, redirect } from "@sveltejs/kit";
-import { getToken } from "$lib/api/token";
 import type { PageLoad } from "./$types";
 
 export const ssr = false;
 
 export const load: PageLoad = async ({ params, fetch }) => {
-  const base = import.meta.env.VITE_BACKEND_URL ?? "";
-
-  const token = getToken();
-
-  const recipeRes = await fetch(`${base}/recipes/${params.id}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  });
+  const recipeRes = await fetch(`/api/recipes/${params.id}`);
 
   if (recipeRes.status === 401) {
     throw redirect(303, "/login");
@@ -22,9 +15,7 @@ export const load: PageLoad = async ({ params, fetch }) => {
   }
 
   const recipe = await recipeRes.json();
-  const notesRes = await fetch(`${base}/recipes/${params.id}/notes`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  });
+  const notesRes = await fetch(`/api/recipes/${params.id}/notes`);
 
   let notes = [];
   let notesError = "";

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { authMe, logout, updateTagColors, type AuthUser } from "$lib/api/auth";
+  import { createUser, listUsers } from "$lib/api/admin";
   import {
     importRecipe,
     listRecipes,
@@ -56,6 +57,17 @@
   let editingTitleId: string | null = null;
   let editingTitle = "";
 
+  let adminOpen = false;
+  let users: AuthUser[] = [];
+  let usersBusy = false;
+  let newUserUsername = "";
+  let newUserPassword = "";
+  let newUserRole: "user" | "admin" = "user";
+  let createUserBusy = false;
+  let createUserError = "";
+  let createUserNotice = "";
+  let generatedPassword: string | null = null;
+
   const sortLabels: Record<SortKey, string> = {
     updated_desc: "Recently added",
     title_asc: "Alphabetical (A → Z)"
@@ -102,6 +114,10 @@
     loadError = "";
     try {
       user = await authMe();
+      if (user.must_change_password) {
+        goto("/login");
+        return;
+      }
       tagColors = user.tag_colors ?? {};
       recipes = await listRecipes();
     } catch (err) {
@@ -114,6 +130,50 @@
       loading = false;
     }
   });
+
+  $: if (adminOpen && user?.role === "admin") {
+    void refreshUsers();
+  }
+
+  async function refreshUsers() {
+    usersBusy = true;
+    try {
+      const result = await listUsers();
+      users = result.users ?? [];
+    } catch {
+      users = [];
+    } finally {
+      usersBusy = false;
+    }
+  }
+
+  async function handleCreateUser() {
+    createUserError = "";
+    createUserNotice = "";
+    generatedPassword = null;
+    const username = newUserUsername.trim();
+    if (!username) {
+      createUserError = "Username is required.";
+      return;
+    }
+
+    createUserBusy = true;
+    try {
+      const result = await createUser(username, newUserPassword.trim(), newUserRole);
+      users = [result.user, ...users];
+      generatedPassword = result.generated_password;
+      createUserNotice = generatedPassword
+        ? "User created. Copy the generated password now (it won't be shown again)."
+        : "User created.";
+      newUserUsername = "";
+      newUserPassword = "";
+      newUserRole = "user";
+    } catch (err) {
+      createUserError = err instanceof ApiError ? err.message : "Failed to create user.";
+    } finally {
+      createUserBusy = false;
+    }
+  }
 
   async function handleImport() {
     importError = "";
@@ -272,13 +332,106 @@
           Curate your vault, seal your favorites, and revisit every recipe.
         </p>
       </div>
-      <button
-        class="rounded-full border border-[color:var(--tone-border)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--tone-gold)] hover:bg-[color:var(--tone-warm-100)]"
-        on:click={handleLogout}
-        type="button"
-      >
-        Lock vault
-      </button>
+      <div class="flex flex-wrap items-center gap-3">
+        {#if user?.role === "admin"}
+          <Dialog bind:open={adminOpen}>
+            <DialogTrigger
+              class="rounded-full border border-[color:var(--tone-border)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--tone-ink)] hover:bg-white"
+              type="button"
+            >
+              Users
+            </DialogTrigger>
+            <DialogContent class="border-white/70 bg-white/95 text-[color:var(--tone-ink)] shadow-xl">
+              <DialogHeader>
+                <DialogTitle class="font-display">User management</DialogTitle>
+                <DialogDescription>
+                  Create users and share credentials. Generated passwords are only shown once.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div class="mt-4 grid gap-3">
+                <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
+                  Username
+                  <Input bind:value={newUserUsername} placeholder="new_user" />
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
+                  Password (optional)
+                  <Input bind:value={newUserPassword} placeholder="Leave blank to generate" />
+                </label>
+                <label class="grid gap-2 text-sm font-medium text-[color:var(--tone-ink-muted)]">
+                  Role
+                  <Select type="single" bind:value={newUserRole}>
+                    <SelectTrigger class="w-full rounded-xl border border-[color:var(--tone-border-soft)] bg-white px-3 py-2 text-sm shadow-sm">
+                      <span data-slot="select-value">{newUserRole}</span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="user">user</SelectItem>
+                      <SelectItem value="admin">admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+
+                <button
+                  class="shadow-ink mt-2 h-11 rounded-xl bg-[color:var(--tone-ink)] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[color:var(--tone-ink-hover)] disabled:cursor-not-allowed disabled:opacity-70"
+                  type="button"
+                  disabled={createUserBusy}
+                  on:click={handleCreateUser}
+                >
+                  {createUserBusy ? "Creating..." : "Create user"}
+                </button>
+
+                {#if createUserError}
+                  <p class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {createUserError}
+                  </p>
+                {/if}
+                {#if createUserNotice}
+                  <p class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {createUserNotice}
+                  </p>
+                {/if}
+                {#if generatedPassword}
+                  <p class="rounded-xl border border-[color:var(--tone-border)] bg-[color:var(--tone-warm-100)] px-3 py-2 text-sm">
+                    Generated password: <span class="font-mono">{generatedPassword}</span>
+                  </p>
+                {/if}
+
+                <div class="mt-2 border-t border-dashed border-[color:var(--tone-border-soft)] pt-4">
+                  <p class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--tone-ink-soft)]">
+                    Existing users
+                  </p>
+                  {#if usersBusy}
+                    <p class="mt-2 text-sm text-[color:var(--tone-ink-soft)]">Loading…</p>
+                  {:else if users.length === 0}
+                    <p class="mt-2 text-sm text-[color:var(--tone-ink-soft)]">No users found.</p>
+                  {:else}
+                    <div class="mt-3 grid gap-2">
+                      {#each users as u (u.id)}
+                        <div class="flex items-center justify-between rounded-xl border border-[color:var(--tone-border)] bg-white px-3 py-2">
+                          <div>
+                            <p class="text-sm font-semibold text-[color:var(--tone-ink)]">{u.username}</p>
+                            <p class="text-xs text-[color:var(--tone-ink-soft)]">
+                              role: {u.role}{u.must_change_password ? " • must change password" : ""}
+                            </p>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        {/if}
+
+        <button
+          class="rounded-full border border-[color:var(--tone-border)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--tone-gold)] hover:bg-[color:var(--tone-warm-100)]"
+          on:click={handleLogout}
+          type="button"
+        >
+          Lock vault
+        </button>
+      </div>
     </header>
 
     <section class="grid gap-6">
